@@ -1,0 +1,221 @@
+#!/usr/bin/env lua
+--[[ SimpleDBus example script
+
+Get info from the hcid daemon about the different bluetooth adapters,
+and then make them all discover remote devices.
+
+Tested with bluez-utils 3.32
+--]]
+
+local function printlist(list, spacing)
+	if not spacing then
+		spacing = ''
+	end
+
+	for i = 1, #list do
+		print(spacing..'  '..i..': '..list[i])
+	end
+end
+
+-- Import the SimpleDBus module
+local SimpleDBus = require 'SimpleDBus'
+
+-- Get the system bus
+local dbus = assert(SimpleDBus.system_bus())
+
+-- Make a new proxy for the /org/bluez object
+local bluez = dbus:new_proxy('org.bluez', '/org/bluez')
+
+-- Add methods to it
+bluez:add_method('ListAdapters', 'org.bluez.Manager')
+bluez:add_method('DefaultAdapter', 'org.bluez.Manager')
+
+-- Get a list of the adapters and print it
+local adapters, msg = bluez:ListAdapters()
+
+if not adapters then
+	print('Couldn\'t connect to the hcid daemon: '..msg)
+	os.exit(1)
+end
+
+if #adapters == 0 then
+	print 'No adapters found'
+	os.exit(1)
+end
+
+print('\nAdapters:')
+printlist(adapters)
+
+-- Show the default adapter too
+print('\nDefault: '..assert(bluez:DefaultAdapter()))
+
+--[[ Now could do:
+local a = dbus:new_proxy('org.bluez', '')
+a:add_method('GetInfo', 'org.bluez.Adapter')
+a:add_method('ListAvailableModes', 'org.bluez.Adapter')
+a:add_method('ListBondings', 'org.bluez.Adapter')
+a:add_method('ListRemoteDevices', 'org.bluez.Adapter')
+a:add_method('GetRemoteInfo', 'org.bluez.Adapter', 's')
+a:add_method('LastSeen', 'org.bluez.Adapter', 's')
+a:add_method('LastUsed', 'org.bluez.Adapter', 's')
+a:add_method('DiscoverDevices', 'org.bluez.Adapter')
+a:add_method('StartPeriodicDiscovery', 'org.bluez.Adapter')
+-- etc.
+--]]
+
+-- ..but this time we're lazy
+local a = assert(dbus:auto_proxy('org.bluez', '/org/bluez/hci0'))
+
+-- now go through the adapters and print all available information about them
+for _, obj in ipairs(adapters) do
+	-- we only change the object field of the adapter proxy
+	-- since thats all that changes between them
+	-- they all implement the org.bluez.Adapter interface
+	a.object = obj
+
+	print('\n'..obj..':')
+
+	local info = assert(a:GetInfo())
+	print('Address:              '..info.address)
+	print('Version:              '..info.version)
+	print('Revision:             '..info.revision)
+	print('Manufacturer:         '..info.manufacturer)
+	print('Company:              '..info.company)
+	print('Mode:                 '..info.mode)
+	print('Discoverable timeout: '..info.discoverable_timeout)
+	print('Major class:          '..info.major_class)
+	print('Minor class:          '..info.minor_class)
+	print('Available Modes:')
+	printlist(assert(a:ListAvailableModes()))
+	print('Bondings:')
+	printlist(assert(a:ListBondings()))
+	print('Remote Devices:')
+
+	local remote_devices = a:ListRemoteDevices()
+	for k, v in ipairs(remote_devices) do
+		local info = assert(a:GetRemoteInfo(v))
+		print('  '..k..': Address:      '..v)
+		print('     Name:         '..info.name)
+		print('     Alias:        '..(info.alias or '(none)'))
+		print('     Connected:    '..tostring(info.connected))
+		print('     Trusted:      '..tostring(info.trusted))
+		print('     Version:      '..info.version)
+		print('     Revision:     '..info.revision)
+		print('     Manufacturer: '..info.manufacturer)
+		print('     Company:      '..(info.company or '(none)'))
+		print('     Class:        '..info.class)
+		print('     Major Class:  '..info.major_class)
+		print('     Minor Class:  '..info.minor_class)
+		print('     Last Seen:    '..a:LastSeen(v))
+		print('     Last Used:    '..a:LastUsed(v))
+	end
+end
+
+
+-- Define signal handlers
+
+local adapters_working = 0
+
+local function DiscoveryStartedFunc(adapter)
+	return function()
+		print(adapter..': Discovery started')
+		adapters_working = adapters_working + 1
+	end
+end
+
+local function DiscoveryCompletedFunc(adapter)
+	return function()
+		print(adapter..': Discovery completed')
+		adapters_working = adapters_working - 1
+		if adapters_working == 0 then
+			dbus:stop()
+		end
+	end
+end
+
+local function RemoteDeviceFoundFunc(adapter)
+	return function(address, cls, rssi)
+		print(adapter..': '..(address or '(nil)')
+			..', CLS: '..(cls or '(nil)')
+			..', RSSI: '..(rssi or '(nil)'))
+	end
+end
+
+local function RemoteDeviceDisappearedFunc(adapter)
+	return function(address)
+		print(adapter..': '..(address or '(nil)')..' disappeared')
+	end
+end
+
+local function RemoteNameUpdatedFunc(adapter)
+	return function(address, name)
+		print(adapter..': '
+			..(address or '(nil)')..' -> '..(name or '(nil)'))
+	end
+end
+
+-- Register signal handlers
+
+for _, obj in ipairs(adapters) do
+	a.object = obj
+	local id = string.gsub(obj, '.*/([^/]*)', '%1')
+
+	--[[ You can either do like this
+	assert(dbus:register_signal(obj,
+		'org.bluez.Adapter',
+		'DiscoveryStarted',
+		DiscoveryStartedFunc(id)))
+	--]]
+	--![[ ..but since auto_proxy() already found much of
+	--    this information this is probably easier
+
+	assert(dbus:register_auto_signal(a.DiscoveryStarted,
+		DiscoveryStartedFunc(id)))
+	--]]
+
+	assert(dbus:register_signal(obj,
+		'org.bluez.Adapter',
+		'DiscoveryCompleted',
+		DiscoveryCompletedFunc(id)))
+
+	assert(dbus:register_signal(obj,
+		'org.bluez.Adapter',
+		'RemoteDeviceFound',
+		RemoteDeviceFoundFunc(id)))
+
+	assert(dbus:register_signal(obj,
+		'org.bluez.Adapter',
+		'RemoteDeviceDisappeared',
+		RemoteDeviceDisappearedFunc(id)))
+
+	assert(dbus:register_signal(obj,
+		'org.bluez.Adapter',
+		'RemoteNameUpdated',
+		RemoteNameUpdatedFunc(id)))
+
+	assert(dbus:register_signal(obj,
+		'org.bluez.Adapter',
+		'RemoteNameUpdated',
+		RemoteNameUpdatedFunc(id)))
+end
+
+-- Start discovery on all adapters
+
+print '\nStarting discovery on all devices:'
+for _, obj in ipairs(adapters) do
+	a.object = obj
+
+	a:DiscoverDevices()
+	--a:StartPeriodicDiscovery()
+end
+
+-- Run the main loop
+
+local r, msg = dbus:run()
+if not r then
+	print('Error: '..msg)
+	os.exit(1)
+end
+
+print 'Success!'
+os.exit(0)
