@@ -67,10 +67,9 @@ EXPORT int error(lua_State *L, const char *fmt, ...)
 static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 {
 	DBusMessage *msg = dbus_pending_call_steal_reply(pending);
+	int nargs;
 
 	dbus_pending_call_unref(pending);
-
-	int nargs;
 
 	if (msg == NULL)
 		nargs =	error(T, "Reply null");
@@ -120,6 +119,10 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 static int bus_call_method(lua_State *L)
 {
 	int argc = lua_gettop(L);
+	DBusMessage *msg;
+	const char *interface;
+	DBusConnection *conn;
+	DBusMessage *ret;
 
 	/*
 	printf("Calling:\n  %s\n  %s\n  %s\n  %s\n  %s\n",
@@ -132,13 +135,11 @@ static int bus_call_method(lua_State *L)
 	*/
 
 	/* create a new method call and check for errors */
-	const char *interface = lua_tostring(L, 5);
-
+	interface = lua_tostring(L, 5);
 	if (interface && *interface == '\0')
 		interface = NULL;
 
-	DBusMessage *msg = 
-		dbus_message_new_method_call(
+	msg = dbus_message_new_method_call(
 				lua_tostring(L, 2),
 				lua_tostring(L, 3),
 				interface,
@@ -152,16 +153,17 @@ static int bus_call_method(lua_State *L)
 
 	/* get the connection */
 	lua_getfield(L, 1, BUS_CONNECTION);
-	DBusConnection *conn = lua_touserdata(L, -1);
+	conn = lua_touserdata(L, -1);
 	lua_pop(L, 1);
 
 	if (!conn)
 		return error(L, "Connection isn't set");
 
 	if (!lua_pushthread(L)) { /* L can be yielded */
+		DBusPendingCall *pending;
+
 		lua_pop(L, 1);
 
-		DBusPendingCall *pending;
 		if (!dbus_connection_send_with_reply(conn, msg, &pending, -1))
 			return error(L, "Out of memory");
 
@@ -175,8 +177,7 @@ static int bus_call_method(lua_State *L)
 	lua_pop(L, 1);
 
 	/* L is the main thread, so we call the method synchronously */
-	DBusMessage *ret =
-		dbus_connection_send_with_reply_and_block(conn, msg, -1, &err);
+	ret = dbus_connection_send_with_reply_and_block(conn, msg, -1, &err);
 
 	/* free message */
 	dbus_message_unref(msg);
@@ -211,6 +212,8 @@ static int bus_call_method(lua_State *L)
 static DBusHandlerResult signal_handler(DBusConnection *conn,
 		DBusMessage *msg, void *data)
 {
+	lua_State *T;
+
 	if (!msg || dbus_message_get_type(msg) != DBUS_MESSAGE_TYPE_SIGNAL)
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
@@ -230,7 +233,7 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 	}
 
-	lua_State *T = lua_newthread(mainThread);
+	T = lua_newthread(mainThread);
 	lua_insert(mainThread, -2);
 	lua_xmove(mainThread, T, 1);
 
@@ -285,9 +288,11 @@ static void add_match(DBusConnection *conn,
  */
 static int bus_register_signal(lua_State *L)
 {
+	DBusConnection *conn;
+
 	/* get the connection */
 	lua_getfield(L, 1, BUS_CONNECTION);
-	DBusConnection *conn = lua_touserdata(L, -1);
+	conn = lua_touserdata(L, -1);
 	lua_pop(L, 1);
 
 	if (lua_gettop(L) < 5)
@@ -342,12 +347,14 @@ static int bus_register_signal(lua_State *L)
  */
 static int bus_run(lua_State *L)
 {
+	DBusConnection *conn;
+
 	if (is_running)
 		return error(L, "Another main loop is already running");
 
 	/* get the connection */
 	lua_getfield(L, 1, BUS_CONNECTION);
-	DBusConnection *conn = lua_touserdata(L, -1);
+	conn = lua_touserdata(L, -1);
 	lua_pop(L, 1);
 
 	/* push the signal handler and running threads tables on the stack */
@@ -392,8 +399,10 @@ static int bus_stop(lua_State *L)
  */
 static int bus_gc(lua_State *L)
 {
+	DBusConnection *conn;
+
 	lua_getfield(L, 1, BUS_CONNECTION);
-	DBusConnection *conn = lua_touserdata(L, -1);
+	conn = lua_touserdata(L, -1);
 	lua_pop(L, 1);
 
 	dbus_connection_unref(conn);

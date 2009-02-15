@@ -109,17 +109,20 @@ static void push_variant(lua_State *L, DBusMessageIter *args)
 static void push_dict(lua_State *L, DBusMessageIter *args)
 {
 	DBusMessageIter array_args;
+	DBusMessageIter dict_args;
+	pushfunc kf;
+	pushfunc vf;
+
 	dbus_message_iter_recurse(args, &array_args);
 
 	/* check if dictionary is empty */
 	if (dbus_message_iter_get_arg_type(&array_args) != DBUS_TYPE_DICT_ENTRY)
 		return;
 
-	DBusMessageIter dict_args;
 	dbus_message_iter_recurse(&array_args, &dict_args);
 
 	/* get push functions for key and value and push first entry */
-	pushfunc kf = get_pushfunc(&dict_args);
+	kf = get_pushfunc(&dict_args);
 	if (!kf)
 		return;
 
@@ -127,7 +130,7 @@ static void push_dict(lua_State *L, DBusMessageIter *args)
 
 	dbus_message_iter_next(&dict_args);
 
-	pushfunc vf = get_pushfunc(&dict_args);
+	vf = get_pushfunc(&dict_args);
 	if (!vf) {
 		lua_pop(L, 1);
 		return;
@@ -149,20 +152,25 @@ static void push_dict(lua_State *L, DBusMessageIter *args)
 
 static void push_array(lua_State *L, DBusMessageIter *args)
 {
+	DBusMessageIter array_args;
+	pushfunc pf;
+	unsigned int i;
+
 	lua_newtable(L);
 
 	if (dbus_message_iter_get_element_type(args) ==
-			DBUS_TYPE_DICT_ENTRY)
-		return push_dict(L, args);
+			DBUS_TYPE_DICT_ENTRY) {
+		push_dict(L, args);
+		return;
+	}
 
-	DBusMessageIter array_args;
 	dbus_message_iter_recurse(args, &array_args);
 
-	pushfunc pf = get_pushfunc(&array_args);
+	pf = get_pushfunc(&array_args);
 	if (!pf)
 		return;
 
-	unsigned int i = 0;
+	i = 0;
 	do {
 		i++;
 		pf(L, &array_args);
@@ -172,13 +180,14 @@ static void push_array(lua_State *L, DBusMessageIter *args)
 
 static void push_struct(lua_State *L, DBusMessageIter *args)
 {
-	lua_newtable(L);
-
 	DBusMessageIter struct_args;
+	unsigned int i;
+
+	lua_newtable(L);
 
 	dbus_message_iter_recurse(args, &struct_args);
 
-	unsigned int i = 0;
+	i = 0;
 	do {
 		i++;
 		(get_pushfunc(&struct_args))(L, &struct_args);

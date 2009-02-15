@@ -1,8 +1,8 @@
 CC	= gcc
 INSTALL = install
 
-CFLAGS  = -march=native -O2 -Wall -fpic
-#CFLAGS  =-O2 -Wall
+CFLAGS  = -march=native -O2 -Wall -fpic -pedantic
+#CFLAGS  =-O2 -Wall -fPIC -pedantic
 LIBFLAG = -shared
 
 PREFIX = /usr/local

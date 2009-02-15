@@ -201,12 +201,19 @@ static void end_element_handler(struct parsedata *data,
  */
 EXPORT int proxy_parse(lua_State *L)
 {
+	XML_Parser p;
+	struct parsedata data;
+	const char *xml;
+
 	/* create parser and initialise it */
-	XML_Parser p = XML_ParserCreate("UTF-8");
+	p = XML_ParserCreate("UTF-8");
 	if (!p)
 		return error(L, "Couldn't allocate memory for parser");
 
-	struct parsedata data = { L, 0, 0, 0 };
+	data.L = L;
+	data.level = 0;
+	data.interface = 0;
+	data.type = 0;
 	*data.signature = '\0';
 	*data.result = '\0';
 	data.sig_next = data.signature;
@@ -218,7 +225,7 @@ EXPORT int proxy_parse(lua_State *L)
 			(XML_EndElementHandler)end_element_handler);
 
 	/* get the xml string */
-	const char *xml = lua_tostring(L, 2);
+	xml = lua_tostring(L, 2);
 
 	/* put the object name on the stack */
 	lua_getfield(L, 1, "object");

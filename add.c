@@ -41,83 +41,95 @@ static void add_error(lua_State *L, int index,
 static void add_byte(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
+	unsigned char n;
 	if (!lua_isnumber(L, index))
 		(void)luaL_error(L, "Expected number");
-	unsigned char n = (unsigned char)lua_tonumber(L, index);
+	n = (unsigned char)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_BYTE, &n);
 }
 
 static void add_boolean(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
+	dbus_bool_t b;
 	if (!lua_isboolean(L, index))
 		(void)luaL_error(L, "Expected boolean");
-	dbus_bool_t b = lua_toboolean(L, index);
+	b = lua_toboolean(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_BOOLEAN, &b);
 }
 
 static void add_int16(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
+	dbus_int16_t n;
 	if (!lua_isnumber(L, index))
 		(void)luaL_error(L, "Expected number");
-	dbus_int16_t n = (dbus_int16_t)lua_tonumber(L, index);
+	n = (dbus_int16_t)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_INT16, &n);
 }
 
 static void add_uint16(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
+	dbus_uint16_t n;
 	if (!lua_isnumber(L, index))
 		(void)luaL_error(L, "Expected number");
-	dbus_uint16_t n = (dbus_uint16_t)lua_tonumber(L, index);
+	n = (dbus_uint16_t)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_UINT16, &n);
 }
 
 static void add_int32(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
+	dbus_int32_t n;
 	if (!lua_isnumber(L, index))
 		(void)luaL_error(L, "Expected number");
-	dbus_int32_t n = (dbus_int32_t)lua_tonumber(L, index);
+	n = (dbus_int32_t)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_INT32, &n);
 }
 
 static void add_uint32(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
+	dbus_uint32_t n;
 	if (!lua_isnumber(L, index))
 		(void)luaL_error(L, "Expected number");
-	dbus_uint32_t n = (dbus_uint32_t)lua_tonumber(L, index);
+	n = (dbus_uint32_t)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_UINT32, &n);
 }
 
 static void add_string(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
+	const char *s;
 	if (!lua_isstring(L, index))
 		(void)luaL_error(L, "Expected string");
-	const char *s = lua_tostring(L, index);
+	s = lua_tostring(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_STRING, &s);
 }
 
 static void add_array(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
+	DBusSignatureIter array_type;
+	DBusMessageIter array_args;
+	char *signature;
+	addfunc af;
+	int i;
+
 	if (!lua_istable(L, index))
 		(void)luaL_error(L, "Expected table (array)");
 
-	DBusSignatureIter array_type;
 	dbus_signature_iter_recurse(type, &array_type);
 
-	DBusMessageIter array_args;
-	char *signature = dbus_signature_iter_get_signature(&array_type);
+	signature = dbus_signature_iter_get_signature(&array_type);
+
 	dbus_message_iter_open_container(args, DBUS_TYPE_ARRAY,
 			signature, &array_args);
 
-	addfunc af = get_addfunc(&array_type);
+	af = get_addfunc(&array_type);
 
-	int i = 1;
+	i = 1;
 	while (1) {
 		lua_rawgeti(L, index, i);
 		if (lua_isnil(L, -1))
@@ -164,13 +176,14 @@ static addfunc get_addfunc(DBusSignatureIter *type)
 EXPORT void add_arguments(lua_State *L, int i, int argc, const char *signature,
 		DBusMessage *msg)
 {
+	DBusMessageIter args;
+	DBusSignatureIter type;
+
 	if (*signature == '\0')
 		return;
 
-	DBusMessageIter args;
 	dbus_message_iter_init_append(msg, &args);
 	
-	DBusSignatureIter type;
 	dbus_signature_iter_init(&type, signature);
 
 	do {
