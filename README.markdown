@@ -11,8 +11,8 @@ method calls and listen for signals, but support for exporting objects and
 sending signals is planned.
 
 SimpleDBus implements a simple main loop based on the
-dbus_connection_read_write_dispatch() call so scripts can only listen for
-signals and make asynchronuous method calls on one bus at a time.
+`dbus_connection_read_write_dispatch()` call so scripts can only listen for
+signals and make asynchronous method calls on one bus at a time.
 
 [1]: http://www.lua.org
 [2]: http://dbus.freedesktop.org
@@ -26,9 +26,12 @@ Get the sources and do
     make PREFIX=/usr install
 
 This will install the files `simpledbus.so` in `/usr/lib/lua/5.1` and
-`SimpleDBus.lua` in `/usr/share/lua/5.1`. Have a look at the makefiles if this isn't right for your system.
+`SimpleDBus.lua` in `/usr/share/lua/5.1`. Have a look at the makefiles if this
+isn't right for your system.
 
-Make sure you have installed the dbus and expat libraries and their development packages on systems where they are seperate. The build process also requires pkgconfig to set up paths for the dbus headers.
+Make sure you have installed the dbus and expat libraries and their development
+packages on systems where they are separate. The build process also requires
+pkgconfig to set up paths for the dbus headers.
 
 Instead of `make` you can use `make allinone` to compile all the code in one go.
 This produces a slightly smaller library.
