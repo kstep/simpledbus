@@ -26,18 +26,17 @@
 #include <dbus/dbus.h>
 
 #ifdef ALLINONE
-  #include <expat.h>
+#include <lauxlib.h>
+#include <expat.h>
 
-  #define EXPORT static
+#define EXPORT static
 #else
-  #include "add.h"
-  #include "push.h"
-  #include "parse.h"
+#include "add.h"
+#include "push.h"
+#include "parse.h"
 
-  #define EXPORT
+#define EXPORT
 #endif
-
-#define ERRORMSG_MAXLEN 256
 
 #define BUS_CONNECTION        "connection"
 #define BUS_SIGNAL_HANDLERS   "signal_handlers"
@@ -47,38 +46,22 @@ static DBusError err;
 static lua_State *mainThread = NULL;
 static unsigned int is_running = 0;
 
-EXPORT void fatal(lua_State *L, const char *fmt, ...)
-{
-	char str[ERRORMSG_MAXLEN];
-	va_list ap;
-
-	va_start(ap, fmt);
-	vsprintf(str, fmt, ap);
-	va_end(ap);
-
-	lua_pushstring(L, str);
-	lua_error(L);
-}
-
 EXPORT int error(lua_State *L, const char *fmt, ...)
 {
-	char str[ERRORMSG_MAXLEN];
 	va_list ap;
 
-	va_start(ap, fmt);
-	vsprintf(str, fmt, ap);
-	va_end(ap);
-
 	lua_pushnil(L);
-	lua_pushstring(L, str);
+	va_start(ap, fmt);
+	lua_pushvfstring(L, fmt, ap);
+	va_end(ap);
 
 	return 2;
 }
 
 #ifdef ALLINONE
-  #include "add.c"
-  #include "push.c"
-  #include "parse.c"
+#include "add.c"
+#include "push.c"
+#include "parse.c"
 #endif
 
 static void method_return_handler(DBusPendingCall *pending, lua_State *T)

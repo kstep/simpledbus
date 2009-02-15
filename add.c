@@ -18,6 +18,7 @@
 
 #ifndef ALLINONE
 #include <lua.h>
+#include <lauxlib.h>
 #include <dbus/dbus.h>
 
 #include "simpledbus.h"
@@ -33,7 +34,7 @@ static addfunc get_addfunc(DBusSignatureIter *type);
 static void add_error(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
-	fatal(L, "Adding type '%s' is not implemented yet",
+	(void)luaL_error(L, "Adding type '%s' is not implemented yet",
 			dbus_signature_iter_get_signature(type));
 }
 
@@ -41,7 +42,7 @@ static void add_byte(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	if (!lua_isnumber(L, index))
-		fatal(L, "Expected number");
+		(void)luaL_error(L, "Expected number");
 	unsigned char n = (unsigned char)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_BYTE, &n);
 }
@@ -50,7 +51,7 @@ static void add_boolean(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	if (!lua_isboolean(L, index))
-		fatal(L, "Expected boolean");
+		(void)luaL_error(L, "Expected boolean");
 	dbus_bool_t b = lua_toboolean(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_BOOLEAN, &b);
 }
@@ -59,7 +60,7 @@ static void add_int16(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	if (!lua_isnumber(L, index))
-		fatal(L, "Expected number");
+		(void)luaL_error(L, "Expected number");
 	dbus_int16_t n = (dbus_int16_t)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_INT16, &n);
 }
@@ -68,7 +69,7 @@ static void add_uint16(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	if (!lua_isnumber(L, index))
-		fatal(L, "Expected number");
+		(void)luaL_error(L, "Expected number");
 	dbus_uint16_t n = (dbus_uint16_t)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_UINT16, &n);
 }
@@ -77,7 +78,7 @@ static void add_int32(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	if (!lua_isnumber(L, index))
-		fatal(L, "Expected number");
+		(void)luaL_error(L, "Expected number");
 	dbus_int32_t n = (dbus_int32_t)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_INT32, &n);
 }
@@ -86,7 +87,7 @@ static void add_uint32(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	if (!lua_isnumber(L, index))
-		fatal(L, "Expected number");
+		(void)luaL_error(L, "Expected number");
 	dbus_uint32_t n = (dbus_uint32_t)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_UINT32, &n);
 }
@@ -95,7 +96,7 @@ static void add_string(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	if (!lua_isstring(L, index))
-		fatal(L, "Expected string");
+		(void)luaL_error(L, "Expected string");
 	const char *s = lua_tostring(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_STRING, &s);
 }
@@ -104,7 +105,7 @@ static void add_array(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	if (!lua_istable(L, index))
-		fatal(L, "Expected table (array)");
+		(void)luaL_error(L, "Expected table (array)");
 
 	DBusSignatureIter array_type;
 	dbus_signature_iter_recurse(type, &array_type);
@@ -174,7 +175,7 @@ EXPORT void add_arguments(lua_State *L, int i, int argc, const char *signature,
 
 	do {
 		if (i > argc)
-			fatal(L, "Too few arguments");
+			(void)luaL_error(L, "Too few arguments");
 
 		(get_addfunc(&type))(L, i, &type, &args);
 
