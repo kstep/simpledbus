@@ -21,10 +21,10 @@ override CFLAGS += $(DEFINES) $(shell pkg-config --cflags dbus-1) $(shell pkg-co
 override LDFLAGS += $(LIBFLAG) 
 
 ifdef EXPAT_INCDIR
-	override CFLAGS += -I$(EXPAT_INCDIR)
+override CFLAGS += -I$(EXPAT_INCDIR)
 endif
 ifdef EXPAT_LIBDIR
-	override LDFLAGS += -L$(EXPAT_LIBDIR)
+override LDFLAGS += -L$(EXPAT_LIBDIR)
 endif
 
 sources = add.c push.c parse.c simpledbus.c
@@ -33,7 +33,7 @@ objects = $(sources:.c=.o)
 
 programs = simpledbus.so
 
-.PHONY: all indent clean install uninstall
+.PHONY: all strip indent clean install uninstall
 
 all: $(programs)
 
@@ -42,19 +42,16 @@ all: $(programs)
 
 simpledbus.so: $(objects)
 	$(CC) $(CFLAGS) $(LDFLAGS) -lexpat $(shell pkg-config --libs dbus-1) $(objects) -o $@
-ifdef STRIP
-	strip $@
-endif
 
 allinone: CFLAGS+=-DALLINONE
 allinone:
 	$(CC) $(CFLAGS) $(LDFLAGS) -lexpat $(shell pkg-config --libs dbus-1) simpledbus.c -o simpledbus.so
-ifdef STRIP
-	strip simpledbus.so
-endif
 
 simpledbus:
 	@echo "LuaRocks is silly..."
+
+strip:
+	@for i in $(programs); do echo strip $$i; strip "$$i"; done
 
 indent:
 	indent -kr -i8 *.c *.h
@@ -62,7 +59,7 @@ indent:
 clean:
 	rm -f *.so *.o *.c~ *.h~ $(programs)
 
-install: simpledbus
+install: simpledbus.so
 	$(INSTALL) -m755 -D simpledbus.so $(DESTDIR)$(LUA_LIBDIR)/simpledbus.so
 	$(INSTALL) -m644 -D SimpleDBus.lua $(DESTDIR)$(LUA_SHAREDIR)/SimpleDBus.lua
 
