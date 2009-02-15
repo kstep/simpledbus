@@ -205,26 +205,8 @@ static int bus_call_method(lua_State *L)
 	return error(L, "Unknown reply");
 }
 
-static void push_signal_string_helper(lua_State *L, size_t len,
-		const char *object,
-		const char *interface,
-		const char *signal)
-{
-	char str[len];
-
-	sprintf(str, "%s\n%s\n%s", object, interface, signal);
-
-	lua_pushlstring(L, str, len);
-}
-static void push_signal_string(lua_State *L,
-		const char *object,
-		const char *interface,
-		const char *signal)
-{
-	return push_signal_string_helper(L,
-			3 + strlen(object) + strlen(interface) + strlen(signal),
-			object, interface, signal);
-}
+#define push_signal_string(L, object, interface, signal) \
+	lua_pushfstring(L, "%s\n%s\n%s", object, interface, signal)
 
 static DBusHandlerResult signal_handler(DBusConnection *conn,
 		DBusMessage *msg, void *data)
@@ -272,33 +254,24 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 	return DBUS_HANDLER_RESULT_HANDLED;
 }
 
-static void add_match_helper(DBusConnection *conn, size_t len,
-		const char *object,
-		const char *interface,
-		const char *signal)
-{
-		/* construct rule to catch the signal messages */
-		char rule[len];
-
-		sprintf(rule, "type='signal',path='%s',interface='%s',member='%s'",
-				object, interface, signal);
-
-		/*
-		printf("added rule=\"%s\"\n", rule); fflush(stdout);
-		*/
-
-		/* add the rule */
-		dbus_bus_add_match(conn, rule, &err);
-}
-
 static void add_match(DBusConnection *conn,
 		const char *object,
 		const char *interface,
 		const char *signal)
 {
-	return add_match_helper(conn,
-			45 + strlen(object) + strlen(interface) + strlen(signal),
+	char *rule = alloca(45 + strlen(object)
+			+ strlen(interface) + strlen(signal));
+
+	/* construct rule to catch the signal messages */
+	sprintf(rule, "type='signal',path='%s',interface='%s',member='%s'",
 			object, interface, signal);
+
+	/*
+	printf("added rule=\"%s\"\n", rule); fflush(stdout);
+	*/
+
+	/* add the rule */
+	dbus_bus_add_match(conn, rule, &err);
 }
 
 /*
