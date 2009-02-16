@@ -23,10 +23,10 @@
 
 #define LUA_LIB
 #include <lua.h>
+#include <lauxlib.h>
 #include <dbus/dbus.h>
 
 #ifdef ALLINONE
-#include <lauxlib.h>
 #include <expat.h>
 
 #define EXPORT static
@@ -37,10 +37,6 @@
 
 #define EXPORT
 #endif
-
-#define BUS_CONNECTION        "connection"
-#define BUS_SIGNAL_HANDLERS   "signal_handlers"
-#define BUS_RUNNING_THREADS   "running_threads"
 
 static DBusError err;
 static lua_State *mainThread = NULL;
@@ -63,6 +59,30 @@ EXPORT int error(lua_State *L, const char *fmt, ...)
 #include "push.c"
 #include "parse.c"
 #endif
+
+typedef struct {
+	DBusConnection *conn;
+} LCon;
+
+static DBusConnection *bus_check(lua_State *L, int index)
+{
+	int r;
+	LCon *c;
+
+	if (lua_getmetatable(L, index) == 0)
+		luaL_argerror(L, index,
+				"expected a DBus connection");
+
+	r = lua_equal(L, lua_upvalueindex(1), -1);
+	lua_pop(L, 1);
+	if (r == 0)
+		luaL_argerror(L, index,
+				"expected a DBus connection");
+
+	c = lua_touserdata(L, index);
+
+	return c->conn;
+}
 
 static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 {
@@ -96,7 +116,7 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 		lua_pushthread(T);
 		lua_xmove(T, mainThread, 1);
 		lua_pushnil(mainThread);
-		lua_settable(mainThread, -3); /* thread table */
+		lua_rawset(mainThread, -3); /* thread table */
 		break;
 	case LUA_YIELD: /* thread yielded again */
 		break;
@@ -108,6 +128,8 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 }
 
 /*
+ * DBus.call_method()
+ *
  * argument 1: bus
  * argument 2: target
  * argument 3: object
@@ -118,11 +140,10 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
  */
 static int bus_call_method(lua_State *L)
 {
-	int argc = lua_gettop(L);
-	DBusMessage *msg;
 	const char *interface;
-	DBusConnection *conn;
+	DBusMessage *msg;
 	DBusMessage *ret;
+	DBusConnection *conn = bus_check(L, 1);
 
 	/*
 	printf("Calling:\n  %s\n  %s\n  %s\n  %s\n  %s\n",
@@ -149,15 +170,7 @@ static int bus_call_method(lua_State *L)
 
 	/* get the signature and add arguments */
 	if (lua_isstring(L, 6))
-		add_arguments(L, 7, argc, lua_tostring(L, 6), msg);
-
-	/* get the connection */
-	lua_getfield(L, 1, BUS_CONNECTION);
-	conn = lua_touserdata(L, -1);
-	lua_pop(L, 1);
-
-	if (!conn)
-		return error(L, "Connection isn't set");
+		add_arguments(L, 7, lua_gettop(L), lua_tostring(L, 6), msg);
 
 	if (!lua_pushthread(L)) { /* L can be yielded */
 		DBusPendingCall *pending;
@@ -214,7 +227,8 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 {
 	lua_State *T;
 
-	if (!msg || dbus_message_get_type(msg) != DBUS_MESSAGE_TYPE_SIGNAL)
+	if (msg == NULL || dbus_message_get_type(msg)
+			!= DBUS_MESSAGE_TYPE_SIGNAL)
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
 	push_signal_string(mainThread,
@@ -226,13 +240,15 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 	fflush(stdout);
 	*/
 
-	lua_gettable(mainThread, -3); /* signal handler table */
+	lua_rawget(mainThread, -2); /* signal handler table */
 
 	if (lua_type(mainThread, -1) != LUA_TFUNCTION) {
 		lua_pop(mainThread, 1);
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 	}
 
+	/* create new Lua thread and move the
+	 * Lua signal handler there */
 	T = lua_newthread(mainThread);
 	lua_insert(mainThread, -2);
 	lua_xmove(mainThread, T, 1);
@@ -246,7 +262,7 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 	case LUA_YIELD:	/* thread yielded */
 		/* save it in the running threads table */
 		lua_pushboolean(mainThread, 1);
-		lua_settable(mainThread, -3); /* thread table */
+		lua_rawset(mainThread, -3); /* thread table */
 		break;
 	default:
 		/* move error message to main thread and error */
@@ -288,36 +304,32 @@ static void add_match(DBusConnection *conn,
  */
 static int bus_register_signal(lua_State *L)
 {
-	DBusConnection *conn;
-
-	/* get the connection */
-	lua_getfield(L, 1, BUS_CONNECTION);
-	conn = lua_touserdata(L, -1);
-	lua_pop(L, 1);
+	DBusConnection *conn = bus_check(L, 1);
 
 	if (lua_gettop(L) < 5)
 		return error(L, "Too few arguments");
 
 	/* get the signal handler table */
-	lua_getfield(L, 1, BUS_SIGNAL_HANDLERS);
+	lua_getfenv(L, 1);
 
 	{
 		const char *object = lua_tostring(L, 2);
 		const char *interface = lua_tostring(L, 3);
 		const char *signal = lua_tostring(L, 4);
+		int unset;
 
 		/* push the signal string */
 		push_signal_string(L, object, interface, signal);
 
 		/* check if signal is already set */
 		lua_pushvalue(L, -1);
-		lua_gettable(L, -3);
+		lua_rawget(L, -3);
+		unset = lua_isnil(L, -1);
+		lua_pop(L, 1);
 
 		/* if we didn't already set this signal
 		 * tell dbus we're interested */
-		if (lua_isnil(L, -1)) {
-			lua_pop(L, 1);
-
+		if (unset) {
 			/* add the rule and check for errors */
 			add_match(conn, object, interface, signal);
 			if (dbus_error_is_set(&err)) {
@@ -327,15 +339,15 @@ static int bus_register_signal(lua_State *L)
 				dbus_error_free(&err);
 				return 2;
 			}
-		} else
-			lua_pop(L, 1);
+		}
 	}
 
 	/* add the function to the signal handler table */
 	lua_pushvalue(L, 5);
-	lua_settable(L, -3); /* signal handler table */
+	lua_rawset(L, -3); /* signal handler table */
 	lua_pop(L, 1);
 
+	/* return true */
 	lua_pushboolean(L, 1);
 	return 1;
 }
@@ -343,31 +355,24 @@ static int bus_register_signal(lua_State *L)
 /*
  * DBus.run()
  *
- * argument 1: connection
  */
 static int bus_run(lua_State *L)
 {
-	DBusConnection *conn;
+	DBusConnection *conn = bus_check(L, 1);
 
 	if (is_running)
 		return error(L, "Another main loop is already running");
 
-	/* get the connection */
-	lua_getfield(L, 1, BUS_CONNECTION);
-	conn = lua_touserdata(L, -1);
-	lua_pop(L, 1);
-
-	/* push the signal handler and running threads tables on the stack */
-	lua_getfield(L, 1, BUS_SIGNAL_HANDLERS);
-	lua_getfield(L, 1, BUS_RUNNING_THREADS);
+	/* push the signal handler and running threads table on the stack */
+	lua_getfenv(L, 1);
 
 	is_running = 1;
 	mainThread = L;
 
 	while (is_running && dbus_connection_read_write_dispatch(conn, -1));
 
-	/* remove the signal handler and running threads tables */
-	lua_pop(L, 2);
+	/* remove the signal handler and running threads table */
+	lua_pop(L, 1);
 
 	mainThread = NULL;
 
@@ -376,6 +381,7 @@ static int bus_run(lua_State *L)
 		return error(L, "Main loop ended unexpectedly");
 	}
 
+	/* return true */
 	lua_pushboolean(L, 1);
 	return 1;
 }
@@ -383,7 +389,6 @@ static int bus_run(lua_State *L)
 /*
  * DBus.stop()
  *
- * argument 1: connection
  */
 static int bus_stop(lua_State *L)
 {
@@ -392,26 +397,10 @@ static int bus_stop(lua_State *L)
 	return 0;
 }
 
-/*
- * DBus.__gc()
- *
- * argument 1: connection
- */
-static int bus_gc(lua_State *L)
-{
-	DBusConnection *conn;
-
-	lua_getfield(L, 1, BUS_CONNECTION);
-	conn = lua_touserdata(L, -1);
-	lua_pop(L, 1);
-
-	dbus_connection_unref(conn);
-
-	return 0;
-}
-
 static int new_connection(lua_State *L, DBusConnection *conn)
 {
+	LCon *c;
+
 	if (dbus_error_is_set(&err)) {
 		lua_pushnil(L);
 		lua_pushstring(L, err.message);
@@ -422,33 +411,24 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 	if (conn == NULL)
 		return error(L, "Couldn't create connection");
 
-	/* create new table for the bus */
-	lua_newtable(L);
+	/* set the signal handler */
+	if (!dbus_connection_add_filter(conn,
+				(DBusHandleMessageFunction)signal_handler,
+				NULL, NULL))
+		return error(L, "Not enough memory to add filter");
+
+	/* create new userdata for the bus */
+	c = lua_newuserdata(L, sizeof(LCon));
+	c->conn = conn;
 
 	/* ..and set the metatable */
 	lua_pushvalue(L, lua_upvalueindex(1));
 	lua_setmetatable(L, -2);
 
-	/* insert light userdata for the connection */
-	lua_pushliteral(L, BUS_CONNECTION);
-	lua_pushlightuserdata(L, conn);
-	lua_rawset(L, -3);
-
-	/* insert table for signal handlers */
-	lua_pushliteral(L, BUS_SIGNAL_HANDLERS);
+	/* create new environment table for
+	 * signal handlers and running threads */
 	lua_newtable(L);
-	lua_rawset(L, -3);
-
-	/* insert table for running threads */
-	lua_pushliteral(L, BUS_RUNNING_THREADS);
-	lua_newtable(L);
-	lua_rawset(L, -3);
-
-	/* set the signal handler */
-	if (!dbus_connection_add_filter(conn, 
-				(DBusHandleMessageFunction)signal_handler,
-				NULL, NULL))
-		return error(L, "Not enough memory to add filter");
+	lua_setfenv(L, -2);
 
 	return 1;
 }
@@ -456,7 +436,6 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 /*
  * system_bus()
  *
- * upvalue 1: DBus
  */
 static int simpledbus_system_bus(lua_State *L)
 {
@@ -466,7 +445,6 @@ static int simpledbus_system_bus(lua_State *L)
 /*
  * session_bus()
  *
- * upvalue 1: DBus
  */
 static int simpledbus_session_bus(lua_State *L)
 {
@@ -474,10 +452,30 @@ static int simpledbus_session_bus(lua_State *L)
 }
 
 /*
+ * DBus.__gc()
+ *
+ */
+static int bus_gc(lua_State *L)
+{
+	LCon *c = lua_touserdata(L, 1);
+	dbus_connection_unref(c->conn);
+	return 0;
+}
+
+/*
  * It starts...
  */
 LUALIB_API int luaopen_simpledbus(lua_State *L)
 {
+	luaL_Reg bus_funcs[] = {
+		{"call_method", bus_call_method},
+		{"register_signal", bus_register_signal},
+		{"run", bus_run},
+		{"stop", bus_stop},
+		{NULL, NULL}
+	};
+	luaL_Reg *p;
+
 	/* initialise the errors */
 	dbus_error_init(&err);
 
@@ -501,21 +499,12 @@ LUALIB_API int luaopen_simpledbus(lua_State *L)
 	lua_pushcclosure(L, simpledbus_session_bus, 1);
 	lua_setfield(L, 2, "session_bus");
 
-	/* insert the call_method function */
-	lua_pushcclosure(L, bus_call_method, 0);
-	lua_setfield(L, 3, "call_method");
-
-	/* insert the register_signal function */
-	lua_pushcclosure(L, bus_register_signal, 0);
-	lua_setfield(L, 3, "register_signal");
-
-	/* insert the run function */
-	lua_pushcclosure(L, bus_run, 0);
-	lua_setfield(L, 3, "run");
-
-	/* insert the stop function */
-	lua_pushcclosure(L, bus_stop, 0);
-	lua_setfield(L, 3, "stop");
+	/* insert DBus methods */
+	for (p = bus_funcs; p->name; p++) {
+		lua_pushvalue(L, 3); /* upvalue 1: DBus */
+		lua_pushcclosure(L, p->func, 1);
+		lua_setfield(L, 3, p->name);
+	}
 
 	/* insert the garbage collection metafunction */
 	lua_pushcclosure(L, bus_gc, 0);
