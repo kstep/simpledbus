@@ -31,14 +31,16 @@
 #define TAG_METHOD 1
 #define TAG_SIGNAL 2
 
+#define SIG_MAXLENGTH 256
+
 struct parsedata {
 	lua_State *L;
 	unsigned int level;
 	unsigned int interface;
 	unsigned int type;
-	char signature[256];
+	char signature[SIG_MAXLENGTH];
 	char *sig_next;
-	char result[256];
+	char result[SIG_MAXLENGTH];
 	char *res_next;
 };
 
@@ -172,12 +174,12 @@ static void end_element_handler(struct parsedata *data,
 		lua_setfield(data->L, -2, "signature");
 
 		switch (data->type) {
-		case 1:
+		case TAG_METHOD:
 			lua_pushlstring(data->L, data->result,
 					data->res_next - data->result);
 			lua_setfield(data->L, -2, "result");
 			break;
-		case 2:
+		case TAG_SIGNAL:
 			lua_pushvalue(data->L, -4); /* object name */
 			lua_setfield(data->L, -2, "object");
 			break;

@@ -17,7 +17,6 @@
  */
 
 #ifndef ALLINONE
-
 #include <lua.h>
 #include <dbus/dbus.h>
 
