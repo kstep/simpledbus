@@ -1,0 +1,171 @@
+#!/usr/bin/env lua
+--[[ SimpleDBus example script
+
+Get info from the bluetoothd daemon about the different bluetooth adapters,
+and then make them all discover remote devices.
+
+Tested with bluez 4.29
+--]]
+
+local printlist, printproperties
+do
+   local type, ipairs, write, format, sort =
+         type, ipairs, io.write, string.format, table.sort
+
+   printlist = function(list, spacing)
+      if not spacing then spacing = '' end
+
+      for i = 1, #list do
+         write(spacing, format('%4i: ', i), list[i], '\n')
+      end
+   end
+
+   printproperties = function(prop, spacing)
+      if not spacing then spacing = '' end
+      local keys, i, width = {}, 0, 0
+      for k, _ in pairs(prop) do
+         i = i+1
+         keys[i] = k
+         if #k > width then width = #k end
+      end
+      sort(keys)
+      for _, k in ipairs(keys) do
+         write(spacing, k, ': ')
+         for i = 1, width - #k do
+            write(' ')
+         end
+         local v = prop[k]
+         if type(v) == 'table' then v = '...' end
+         write(tostring(v), '\n')
+      end
+   end
+end
+
+-- Import the SimpleDBus module
+local SimpleDBus = require 'SimpleDBus'
+
+-- Get the system bus
+local dbus = assert(SimpleDBus.SystemBus())
+
+-- Make a new proxy object for the / object connected at org.bluez
+local bluez = dbus:new_proxy('org.bluez', '/')
+
+-- Add methods manually
+bluez:add_method('ListAdapters', 'org.bluez.Manager')
+bluez:add_method('DefaultAdapter', 'org.bluez.Manager')
+
+-- Get a list of the adapters and print it
+local adapters, msg = bluez:ListAdapters()
+if not adapters then
+   print('Couldn\'t get adapters: '..msg)
+   os.exit(1)
+end
+if #adapters == 0 then
+   print 'No adapters found'
+   os.exit(0)
+end
+print('Adapters:')
+printlist(adapters)
+
+-- Show the default adapter too
+print('\nDefault: '..assert(bluez:DefaultAdapter()))
+
+-- Now go through the adapters, create proxies for each of them
+-- and dump lots of information
+for i, objpath in ipairs(adapters) do
+   -- This time we use the auto_proxy() method to
+   -- parse the introspection xml and create the
+   -- proxy for us
+   local a = assert(dbus:auto_proxy('org.bluez', objpath))
+   adapters[i] = a
+
+   print('\n'..objpath..':')
+
+   local info = assert(a:GetProperties())
+   printproperties(info, '   ')
+
+   local devices = info.Devices
+   if devices then
+      for _, objpath in ipairs(devices) do
+         print('\n   '..objpath..':')
+
+         -- This time we don't even create a proxy object,
+         -- but just use call_method() directly
+         local info = assert(dbus:call_method(
+            'org.bluez',         -- target
+            objpath,             -- object path
+            'GetProperties',     -- method name
+            'org.bluez.Device')) -- interface
+            -- '',               -- signature (defaults to '')
+            -- ...))             -- arguments
+
+         printproperties(info, '      ')
+      end
+   end
+end
+
+-- Define signal handlers
+
+local discovering = 0
+
+local function DeviceFoundFunc(id)
+   return function(address, prop)
+      print(id..': Found device')
+      printproperties(prop, '   ')
+   end
+end
+
+local function PropertyChangedFunc(id, adapter)
+   return function(name, value)
+      print(id..': Property changed')
+      print('   '..name..' -> '..tostring(value))
+      if name == 'Discovering' then
+         if value then
+            discovering = discovering + 1
+         else
+            adapter:StopDiscovery()
+            discovering = discovering - 1
+            if discovering == 0 then dbus:stop() end
+         end
+      end
+   end
+end
+
+
+-- Register signal handlers
+
+for _, a in ipairs(adapters) do
+   local id = string.gsub(a.object, '.*/([^/]*)', '%1')
+
+   --[[ You can register for signals like this
+   assert(dbus:register_signal(a.object,
+   'org.bluez.Adapter',
+   'DeviceFound',
+   DeviceFoundFunc(id)))
+   --]]
+   --![[ ..but since auto_proxy() already found
+   --    much of this information we can just do
+   assert(dbus:register_auto_signal(a.DeviceFound, DeviceFoundFunc(id)))
+   --]]
+
+   assert(dbus:register_auto_signal(a.PropertyChanged, PropertyChangedFunc(id, a)))
+end
+
+-- Start discovery on all adapters
+
+print '\nStarting discovery on all devices:'
+for _, a in ipairs(adapters) do
+   a:StartDiscovery()
+end
+
+-- Run the main loop
+
+local r, msg = dbus:run()
+if not r then
+   print('Error: '..msg)
+   os.exit(1)
+end
+
+print 'Success!'
+
+-- vi: syntax=lua ts=3 sw=3 et:
