@@ -128,7 +128,7 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 }
 
 /*
- * DBus.call_method()
+ * DBus:call_method()
  *
  * argument 1: bus
  * argument 2: target
@@ -294,7 +294,7 @@ static void add_match(DBusConnection *conn,
 }
 
 /*
- * DBus.register_signal()
+ * DBus:register_signal()
  *
  * argument 1: connection
  * argument 2: object
@@ -353,14 +353,13 @@ static int bus_register_signal(lua_State *L)
 }
 
 /*
- * DBus.run()
- *
+ * DBus:run()
  */
 static int bus_run(lua_State *L)
 {
 	DBusConnection *conn = bus_check(L, 1);
 
-	if (is_running)
+	if (mainThread)
 		return error(L, "Another main loop is already running");
 
 	/* push the signal handler and running threads table on the stack */
@@ -374,12 +373,12 @@ static int bus_run(lua_State *L)
 	/* remove the signal handler and running threads table */
 	lua_pop(L, 1);
 
-	mainThread = NULL;
-
 	if (is_running) {
 		is_running = 0;
 		return error(L, "Main loop ended unexpectedly");
 	}
+
+	mainThread = NULL;
 
 	/* return true */
 	lua_pushboolean(L, 1);
@@ -387,8 +386,7 @@ static int bus_run(lua_State *L)
 }
 
 /*
- * DBus.stop()
- *
+ * DBus:stop()
  */
 static int bus_stop(lua_State *L)
 {
@@ -434,8 +432,7 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 }
 
 /*
- * system_bus()
- *
+ * SystemBus()
  */
 static int simpledbus_system_bus(lua_State *L)
 {
@@ -443,8 +440,7 @@ static int simpledbus_system_bus(lua_State *L)
 }
 
 /*
- * session_bus()
- *
+ * SessionBus()
  */
 static int simpledbus_session_bus(lua_State *L)
 {
@@ -453,7 +449,6 @@ static int simpledbus_session_bus(lua_State *L)
 
 /*
  * DBus.__gc()
- *
  */
 static int bus_gc(lua_State *L)
 {
@@ -492,12 +487,12 @@ LUALIB_API int luaopen_simpledbus(lua_State *L)
 	/* insert the system_bus function */
 	lua_pushvalue(L, 3); /* upvalue 1: DBus */
 	lua_pushcclosure(L, simpledbus_system_bus, 1);
-	lua_setfield(L, 2, "system_bus");
+	lua_setfield(L, 2, "SystemBus");
 
 	/* insert the session_bus function */
 	lua_pushvalue(L, 3); /* upvalue 1: DBus */
 	lua_pushcclosure(L, simpledbus_session_bus, 1);
-	lua_setfield(L, 2, "session_bus");
+	lua_setfield(L, 2, "SessionBus");
 
 	/* insert DBus methods */
 	for (p = bus_funcs; p->name; p++) {

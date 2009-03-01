@@ -52,7 +52,7 @@ end
 
 do
    local Introspect = M.new_method('Introspect',
-   'org.freedesktop.DBus.Introspectable')
+      'org.freedesktop.DBus.Introspectable')
    M.Introspect = Introspect
 
    local Proxy = M.Proxy
@@ -80,9 +80,10 @@ end
 do
    local call_method = M.DBus.call_method
    function M.Method.__call(method, proxy, ...)
-      return call_method(proxy.bus, proxy.target, proxy.object,
-      method.name, method.interface,
-      method.signature, ...)
+      return call_method(
+         proxy.bus, proxy.target, proxy.object,
+         method.name, method.interface,
+         method.signature, ...)
    end
 end
 
@@ -90,10 +91,10 @@ do
    local register_signal = M.DBus.register_signal
    function M.DBus:register_auto_signal(signal, f)
       return register_signal(self,
-      signal.object,
-      signal.interface,
-      signal.name,
-      f)
+         signal.object,
+         signal.interface,
+         signal.name,
+         f)
    end
 end
 
