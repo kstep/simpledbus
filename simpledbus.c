@@ -17,9 +17,11 @@
  */
 
 #include <stdlib.h>
-#include <stdio.h>
 #include <stdarg.h>
+#include <errno.h>
 #include <string.h>
+#include <stdio.h>
+#include <poll.h>
 
 #define LUA_LIB
 #include <lua.h>
@@ -40,7 +42,7 @@
 
 static DBusError err;
 static lua_State *mainThread = NULL;
-static unsigned int is_running = 0;
+static unsigned int stop;
 
 EXPORT int error(lua_State *L, const char *fmt, ...)
 {
@@ -60,14 +62,108 @@ EXPORT int error(lua_State *L, const char *fmt, ...)
 #include "parse.c"
 #endif
 
+#ifdef DEBUG
+static void dump_watch(DBusWatch *watch)
+{
+	char *s;
+	unsigned int flags = dbus_watch_get_flags(watch);
+
+	if (flags & DBUS_WATCH_READABLE) {
+		if (flags & DBUS_WATCH_WRITABLE)
+			s = "READ|WRITE";
+		else
+			s = "READ";
+	} else if (flags & DBUS_WATCH_WRITABLE)
+		s = "WRITE";
+	else
+		s = "";
+
+	printf("watch = %p, fd = %i, flags = %s, enabled = %s\n",
+			(void *)watch,
+			dbus_watch_get_unix_fd(watch),
+			s,
+			dbus_watch_get_enabled(watch) ? "true" : "false");
+}
+#endif
+
+struct wlist_s;
+typedef struct wlist_s *wlist;
+struct wlist_s {
+	DBusWatch *watch;
+	wlist next;
+};
+
 typedef struct {
 	DBusConnection *conn;
+	unsigned int nwatches;
+	unsigned int new_watch;
+	wlist watches;
+	int index;
 } LCon;
 
-static DBusConnection *bus_check(lua_State *L, int index)
+static dbus_bool_t add_watch_cb(DBusWatch *watch, LCon *c)
+{
+	wlist n;
+#ifdef DEBUG
+	printf("Add watch: ");
+	dump_watch(watch);
+	fflush(stdout);
+#endif
+	if (dbus_watch_get_enabled(watch) == FALSE)
+		return TRUE;
+
+	n = malloc(sizeof(struct wlist_s));
+	if (n == NULL)
+		return FALSE;
+
+	c->nwatches++;
+	c->new_watch = 1;
+	n->watch = watch;
+	n->next = c->watches;
+	c->watches = n;
+
+	return TRUE;
+}
+
+static void remove_watch_cb(DBusWatch *watch, LCon *c)
+{
+	wlist *p;
+#ifdef DEBUG
+	printf("Remove watch: ");
+	dump_watch(watch);
+	fflush(stdout);
+#endif
+	p = &c->watches;
+	while (*p && (*p)->watch != watch)
+		p = &(*p)->next;
+
+	if (*p) {
+		wlist n = *p;
+
+		*p = n->next;
+		free(n);
+
+		c->nwatches--;
+		c->new_watch = 1;
+	}
+}
+
+static void toggle_watch_cb(DBusWatch *watch, LCon *c)
+{
+#ifdef DEBUG
+	printf("Toggle watch: ");
+	dump_watch(watch);
+	fflush(stdout);
+#endif
+	if (dbus_watch_get_enabled(watch))
+		(void)add_watch_cb(watch, c);
+	else
+		remove_watch_cb(watch, c);
+}
+
+static LCon *bus_check(lua_State *L, int index)
 {
 	int r;
-	LCon *c;
 
 	if (lua_getmetatable(L, index) == 0)
 		luaL_argerror(L, index,
@@ -79,17 +175,20 @@ static DBusConnection *bus_check(lua_State *L, int index)
 		luaL_argerror(L, index,
 				"expected a DBus connection");
 
-	c = lua_touserdata(L, index);
-
-	return c->conn;
+	return (LCon *)lua_touserdata(L, index);
 }
 
 static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 {
 	DBusMessage *msg = dbus_pending_call_steal_reply(pending);
+	LCon *c;
 	int nargs;
 
 	dbus_pending_call_unref(pending);
+
+	/* pop the connection from the thread */
+	c = lua_touserdata(T, -1);
+	lua_pop(T, 1);
 
 	if (msg == NULL)
 		nargs =	error(T, "Reply null");
@@ -116,7 +215,7 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 		lua_pushthread(T);
 		lua_xmove(T, mainThread, 1);
 		lua_pushnil(mainThread);
-		lua_rawset(mainThread, -3); /* thread table */
+		lua_rawset(mainThread, c->index); /* thread table */
 		break;
 	case LUA_YIELD: /* thread yielded again */
 		break;
@@ -143,9 +242,9 @@ static int bus_call_method(lua_State *L)
 	const char *interface;
 	DBusMessage *msg;
 	DBusMessage *ret;
-	DBusConnection *conn = bus_check(L, 1);
+	LCon *c = bus_check(L, 1);
 
-	/*
+#ifdef DEBUG
 	printf("Calling:\n  %s\n  %s\n  %s\n  %s\n  %s\n",
 				lua_tostring(L, 2),
 				lua_tostring(L, 3),
@@ -153,7 +252,7 @@ static int bus_call_method(lua_State *L)
 				lua_tostring(L, 5),
 				lua_tostring(L, 6));
 	fflush(stdout);
-	*/
+#endif
 
 	/* create a new method call and check for errors */
 	interface = lua_tostring(L, 5);
@@ -175,9 +274,7 @@ static int bus_call_method(lua_State *L)
 	if (!lua_pushthread(L)) { /* L can be yielded */
 		DBusPendingCall *pending;
 
-		lua_pop(L, 1);
-
-		if (!dbus_connection_send_with_reply(conn, msg, &pending, -1))
+		if (!dbus_connection_send_with_reply(c->conn, msg, &pending, -1))
 			return error(L, "Out of memory");
 
 		if (!dbus_pending_call_set_notify(pending,
@@ -185,12 +282,14 @@ static int bus_call_method(lua_State *L)
 					method_return_handler, L, NULL))
 			return error(L, "Out of memory");
 
-		return lua_yield(L, 0);
+		/* yield the connection */
+		lua_settop(L, 1);
+		return lua_yield(L, 1);
 	}
 	lua_pop(L, 1);
 
 	/* L is the main thread, so we call the method synchronously */
-	ret = dbus_connection_send_with_reply_and_block(conn, msg, -1, &err);
+	ret = dbus_connection_send_with_reply_and_block(c->conn, msg, -1, &err);
 
 	/* free message */
 	dbus_message_unref(msg);
@@ -223,7 +322,7 @@ static int bus_call_method(lua_State *L)
 	lua_pushfstring(L, "%s\n%s\n%s", object, interface, signal)
 
 static DBusHandlerResult signal_handler(DBusConnection *conn,
-		DBusMessage *msg, void *data)
+		DBusMessage *msg, LCon *c)
 {
 	lua_State *T;
 
@@ -240,7 +339,7 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 	fflush(stdout);
 	*/
 
-	lua_rawget(mainThread, -2); /* signal handler table */
+	lua_rawget(mainThread, c->index); /* signal handler table */
 
 	if (lua_type(mainThread, -1) != LUA_TFUNCTION) {
 		lua_pop(mainThread, 1);
@@ -262,7 +361,7 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 	case LUA_YIELD:	/* thread yielded */
 		/* save it in the running threads table */
 		lua_pushboolean(mainThread, 1);
-		lua_rawset(mainThread, -3); /* thread table */
+		lua_rawset(mainThread, c->index); /* thread table */
 		break;
 	default:
 		/* move error message to main thread and error */
@@ -304,7 +403,7 @@ static void add_match(DBusConnection *conn,
  */
 static int bus_register_signal(lua_State *L)
 {
-	DBusConnection *conn = bus_check(L, 1);
+	DBusConnection *conn = bus_check(L, 1)->conn;
 
 	if (lua_gettop(L) < 5)
 		return error(L, "Too few arguments");
@@ -353,30 +452,194 @@ static int bus_register_signal(lua_State *L)
 }
 
 /*
- * DBus:run()
+ * DBus.__gc()
  */
-static int bus_run(lua_State *L)
+static int bus_gc(lua_State *L)
 {
-	DBusConnection *conn = bus_check(L, 1);
+	wlist w;
+
+	LCon *c = lua_touserdata(L, 1);
+	dbus_connection_unref(c->conn);
+
+	w = c->watches;
+	while (w) {
+		wlist tmp = w;
+		w = w->next;
+		free(tmp);
+	}
+
+	return 0;
+}
+
+/*
+ * mainloop()
+ */
+static struct pollfd *make_poll_struct(int n, LCon **c, nfds_t *nfds)
+{
+	wlist w;
+	struct pollfd *p;
+	struct pollfd *fds;
+	nfds_t total = 0;
+	int i;
+
+	for (i = 0; i < n; i++)
+		total += c[i]->nwatches;
+	*nfds = total;
+
+	fds = malloc(total * sizeof(struct pollfd));
+	if (fds == NULL)
+		return NULL;
+
+	p = fds;
+	for (i = 0; i < n; i++) {
+		for (w = c[i]->watches; w; w = w->next) {
+			unsigned int flags = dbus_watch_get_flags(w->watch);
+
+			p->fd = dbus_watch_get_unix_fd(w->watch);
+			p->events = POLLERR | POLLHUP;
+			p->revents = 0;
+
+			if (flags & DBUS_WATCH_READABLE)
+				p->events |= POLLIN;
+			if (flags & DBUS_WATCH_WRITABLE)
+				p->events |= POLLOUT;
+
+			p++;
+		}
+
+		c[i]->new_watch = 0;
+	}
+
+	return fds;
+}
+
+static inline unsigned int dispatchall(int n, LCon **c)
+{
+	unsigned int r;
+	int i;
+
+	for (i = 0; i < n; i++) {
+		DBusConnection *conn = c[i]->conn;
+
+		if (dbus_connection_get_dispatch_status(conn)
+				== DBUS_DISPATCH_DATA_REMAINS) {
+			while (dbus_connection_dispatch(conn)
+					== DBUS_DISPATCH_DATA_REMAINS);
+		}
+
+		r |= c[i]->new_watch;
+	}
+
+	return r;
+}
+
+static inline void handleall(int n, LCon **c, struct pollfd *p)
+{
+	int i;
+
+	for (i = 0; i < n; i++) {
+		wlist w;
+
+		for (w = c[i]->watches; w; w = w->next) {
+			if (p->revents) {
+				unsigned int flags = 0;
+
+				if (p->revents & POLLIN)
+					flags |= DBUS_WATCH_READABLE;
+				if (p->revents & POLLOUT)
+					flags |= DBUS_WATCH_WRITABLE;
+				if (p->revents & POLLERR)
+					flags |= DBUS_WATCH_ERROR;
+				if (p->revents & POLLHUP)
+					flags |= DBUS_WATCH_HANGUP;
+
+				(void)dbus_watch_handle(w->watch, flags);
+				p->revents = 0;
+			}
+			p++;
+		}
+	}
+}
+
+static int simpledbus_mainloop(lua_State *L)
+{
+	LCon **c;
+	struct pollfd *fds;
+	nfds_t nfds;
+	int i;
+	int n = lua_gettop(L);
+
+	if (n < 1)
+		return luaL_error(L, "Too few arguments");
 
 	if (mainThread)
-		return error(L, "Another main loop is already running");
+		return luaL_error(L, "Another main loop is already running");
 
-	/* push the signal handler and running threads table on the stack */
-	lua_getfenv(L, 1);
+	c = malloc(n * sizeof(LCon *));
+	if (c == NULL)
+		return error(L, "Out of memory");
 
-	is_running = 1;
+	for (i = 1; i <= n; i++) {
+		c[i-1] = bus_check(L, i);
+		lua_getfenv(L, i);
+		lua_replace(L, i);
+		c[i-1]->index = i;
+	}
+
+	fds = make_poll_struct(n, c, &nfds);
+	if (fds == NULL) {
+		free(c);
+		lua_settop(L, 0);
+		return error(L, "Out of memory");
+	}
+
+	stop = 0;
 	mainThread = L;
 
-	while (is_running && dbus_connection_read_write_dispatch(conn, -1));
+	while (1) {
+		unsigned int watches_changed = dispatchall(n, c);
 
-	/* remove the signal handler and running threads table */
-	lua_pop(L, 1);
+		if (stop)
+			break;
 
-	if (is_running) {
-		is_running = 0;
-		return error(L, "Main loop ended unexpectedly");
+		if (watches_changed) {
+			free(fds);
+			fds = make_poll_struct(n, c, &nfds);
+			if (fds == NULL) {
+				free(c);
+				lua_settop(L, 0);
+				mainThread = NULL;
+				return error(L, "Out of memory");
+			}
+		}
+
+#ifdef DEBUG
+		printf("("); fflush(stdout);
+#endif
+		if (poll(fds, nfds, -1) < 0) {
+			free(c);
+			free(fds);
+			lua_settop(L, 0);
+			mainThread = NULL;
+#if 1
+			lua_pushnil(L);
+			lua_pushfstring(L, "Error polling DBus: %s",
+					strerror(errno));
+			return 2;
+#else
+			return error(L, "Error polling DBus: %s",
+					strerror(errno));
+#endif
+		}
+#ifdef DEBUG
+		printf(")"); fflush(stdout);
+#endif
+		handleall(n, c, fds);
 	}
+
+	free(c);
+	free(fds);
+	lua_settop(L, 0);
 
 	mainThread = NULL;
 
@@ -386,11 +649,11 @@ static int bus_run(lua_State *L)
 }
 
 /*
- * DBus:stop()
+ * stop()
  */
-static int bus_stop(lua_State *L)
+static int simpledbus_stop(lua_State *L)
 {
-	is_running = 0;
+	stop = 1;
 
 	return 0;
 }
@@ -409,17 +672,35 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 	if (conn == NULL)
 		return error(L, "Couldn't create connection");
 
+	/* create new userdata for the bus */
+	c = lua_newuserdata(L, sizeof(LCon));
+	if (c == NULL)
+		return error(L, "Out of memory");
+	c->conn = conn;
+	c->nwatches = 0;
+	c->watches = NULL;
+
+	/* set watch functions */
+	if (!dbus_connection_set_watch_functions(conn,
+				(DBusAddWatchFunction)add_watch_cb,
+				(DBusRemoveWatchFunction)remove_watch_cb,
+				(DBusWatchToggledFunction)toggle_watch_cb,
+				c, NULL)) {
+		dbus_connection_unref(conn);
+		lua_pop(L, 1);
+		return error(L, "Error setting watch functions");
+	}
+
 	/* set the signal handler */
 	if (!dbus_connection_add_filter(conn,
 				(DBusHandleMessageFunction)signal_handler,
-				NULL, NULL))
-		return error(L, "Not enough memory to add filter");
+				c, NULL)) {
+		dbus_connection_unref(conn);
+		lua_pop(L, 1);
+		return error(L, "Error adding filter");
+	}
 
-	/* create new userdata for the bus */
-	c = lua_newuserdata(L, sizeof(LCon));
-	c->conn = conn;
-
-	/* ..and set the metatable */
+	/* set the metatable */
 	lua_pushvalue(L, lua_upvalueindex(1));
 	lua_setmetatable(L, -2);
 
@@ -448,16 +729,6 @@ static int simpledbus_session_bus(lua_State *L)
 }
 
 /*
- * DBus.__gc()
- */
-static int bus_gc(lua_State *L)
-{
-	LCon *c = lua_touserdata(L, 1);
-	dbus_connection_unref(c->conn);
-	return 0;
-}
-
-/*
  * It starts...
  */
 LUALIB_API int luaopen_simpledbus_core(lua_State *L)
@@ -465,8 +736,6 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	luaL_Reg bus_funcs[] = {
 		{"call_method", bus_call_method},
 		{"register_signal", bus_register_signal},
-		{"run", bus_run},
-		{"stop", bus_stop},
 		{NULL, NULL}
 	};
 	luaL_Reg *p;
@@ -476,6 +745,10 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 
 	/* make a table for this module */
 	lua_newtable(L);
+
+	/* insert the stop() function*/
+	lua_pushcclosure(L, simpledbus_stop, 0);
+	lua_setfield(L, 2, "stop");
 
 	/* make the DBus metatable */
 	lua_newtable(L);
@@ -493,6 +766,11 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	lua_pushvalue(L, 3); /* upvalue 1: DBus */
 	lua_pushcclosure(L, simpledbus_session_bus, 1);
 	lua_setfield(L, 2, "SessionBus");
+
+	/* insert the mainloop() function*/
+	lua_pushvalue(L, 3); /* upvalue 1: DBus */
+	lua_pushcclosure(L, simpledbus_mainloop, 1);
+	lua_setfield(L, 2, "mainloop");
 
 	/* insert DBus methods */
 	for (p = bus_funcs; p->name; p++) {

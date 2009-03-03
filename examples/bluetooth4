@@ -125,17 +125,16 @@ local function PropertyChangedFunc(id, adapter)
          else
             adapter:StopDiscovery()
             discovering = discovering - 1
-            if discovering == 0 then dbus:stop() end
+            if discovering == 0 then DBus.stop() end
          end
       end
    end
 end
 
-
 -- Register signal handlers
 
 for _, a in ipairs(adapters) do
-   local id = string.gsub(a.object, '.*/([^/]*)', '%1')
+   local id = a.object:gsub('.*/(.*)', '%1')
 
    --[[ You can register for signals like this
    assert(dbus:register_signal(a.object,
@@ -160,9 +159,9 @@ end
 
 -- Run the main loop
 
-local r, msg = dbus:run()
+local r, msg = DBus.mainloop(dbus)
 if not r then
-   print('Error: '..msg)
+   print(msg)
    os.exit(1)
 end
 

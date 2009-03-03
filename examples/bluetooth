@@ -18,7 +18,7 @@ local function printlist(list, spacing)
 end
 
 -- Import the SimpleDBus module
-local SimpleDBus = require 'SimpleDBus'
+local SimpleDBus = require 'simpledbus'
 
 -- Get the system bus
 local dbus = assert(SimpleDBus.system_bus())
