@@ -31,7 +31,7 @@ sources = add.c push.c parse.c simpledbus.c
 headers = $(sources:.c=.h)
 objects = $(sources:.c=.o)
 
-programs = simpledbus.so
+programs = core.so
 
 .PHONY: all strip indent clean install uninstall
 
@@ -40,12 +40,12 @@ all: $(programs)
 %.o : %.c %.h
 	$(CC) $(CFLAGS) -c $<
 
-simpledbus.so: $(objects)
+core.so: $(objects)
 	$(CC) $(CFLAGS) $(LDFLAGS) -lexpat $(shell pkg-config --libs dbus-1) $(objects) -o $@
 
 allinone: CFLAGS+=-DALLINONE
 allinone:
-	$(CC) $(CFLAGS) $(LDFLAGS) -lexpat $(shell pkg-config --libs dbus-1) simpledbus.c -o simpledbus.so
+	$(CC) $(CFLAGS) $(LDFLAGS) -lexpat $(shell pkg-config --libs dbus-1) simpledbus.c -o core.so
 
 simpledbus:
 	@echo "LuaRocks is silly..."
@@ -59,11 +59,11 @@ indent:
 clean:
 	rm -f *.so *.o *.c~ *.h~ $(programs)
 
-install: simpledbus.so
-	$(INSTALL) -m755 -D simpledbus.so $(DESTDIR)$(LUA_LIBDIR)/simpledbus.so
-	$(INSTALL) -m644 -D SimpleDBus.lua $(DESTDIR)$(LUA_SHAREDIR)/SimpleDBus.lua
+install: core.so
+	$(INSTALL) -m755 -D core.so $(DESTDIR)$(LUA_LIBDIR)/simpledbus/core.so
+	$(INSTALL) -m644 -D simpledbus.lua $(DESTDIR)$(LUA_SHAREDIR)/simpledbus.lua
 
 uninstall:
-	rm -f $(DESTDIR)$(LUA_LIBDIR)/simpledbus.so
-	rm -f $(DESTDIR)$(LUA_SHAREDIR)/simpledbus.so
+	rm -rf $(DESTDIR)$(LUA_LIBDIR)/simpledbus
+	rm -f $(DESTDIR)$(LUA_SHAREDIR)/simpledbus.lua
 

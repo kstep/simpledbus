@@ -460,7 +460,7 @@ static int bus_gc(lua_State *L)
 /*
  * It starts...
  */
-LUALIB_API int luaopen_simpledbus(lua_State *L)
+LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 {
 	luaL_Reg bus_funcs[] = {
 		{"call_method", bus_call_method},
@@ -514,7 +514,6 @@ LUALIB_API int luaopen_simpledbus(lua_State *L)
 	/* Proxy.__index = Proxy */
 	lua_pushvalue(L, 3);
 	lua_setfield(L, 3, "__index");
-
 
 	/* make the Method metatable */
 	lua_newtable(L);

@@ -16,7 +16,7 @@
    along with SimpleDBus. If not, see <http://www.gnu.org/licenses/>.
 --]]
 
-local M = require 'simpledbus'
+local M = require 'simpledbus.core'
 
 do
    local Proxy = M.Proxy

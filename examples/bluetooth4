@@ -41,11 +41,11 @@ do
    end
 end
 
--- Import the SimpleDBus module
-local SimpleDBus = require 'SimpleDBus'
+-- Import the simpledbus module
+local DBus = require 'simpledbus'
 
 -- Get the system bus
-local dbus = assert(SimpleDBus.SystemBus())
+local dbus = assert(DBus.SystemBus())
 
 -- Make a new proxy object for the / object connected at org.bluez
 local bluez = dbus:new_proxy('org.bluez', '/')
