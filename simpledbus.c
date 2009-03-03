@@ -86,24 +86,47 @@ static void dump_watch(DBusWatch *watch)
 }
 #endif
 
-struct wlist_s;
-typedef struct wlist_s *wlist;
-struct wlist_s {
-	DBusWatch *watch;
-	wlist next;
-};
-
 typedef struct {
 	DBusConnection *conn;
-	unsigned int nwatches;
-	unsigned int new_watch;
-	wlist watches;
+	unsigned int watches_changed;
+	unsigned int nactive;
+	DBusWatch *active;
 	int index;
 } LCon;
 
+static dbus_bool_t watch_list_insert(LCon *c, DBusWatch *watch)
+{
+	DBusWatch *prev, *next;
+
+	if (c->active == NULL) {
+		c->active = watch;
+		dbus_watch_set_data(watch, NULL, NULL);
+		c->nactive++;
+		c->watches_changed = 1;
+		return TRUE;
+	}
+
+	next = c->active;
+	while (next != watch) {
+		prev = next;
+		next = dbus_watch_get_data(prev);
+
+		if (next == NULL) { /* list ended */
+			dbus_watch_set_data(prev, watch, NULL);
+			dbus_watch_set_data(watch, NULL, NULL);
+			c->nactive++;
+			c->watches_changed = 1;
+			return TRUE;
+		}
+	}
+
+	/* Hmm.. watch was already in
+	 * the list of active watches */
+	return TRUE;
+}
+
 static dbus_bool_t add_watch_cb(DBusWatch *watch, LCon *c)
 {
-	wlist n;
 #ifdef DEBUG
 	printf("Add watch: ");
 	dump_watch(watch);
@@ -112,40 +135,50 @@ static dbus_bool_t add_watch_cb(DBusWatch *watch, LCon *c)
 	if (dbus_watch_get_enabled(watch) == FALSE)
 		return TRUE;
 
-	n = malloc(sizeof(struct wlist_s));
-	if (n == NULL)
-		return FALSE;
+	return watch_list_insert(c, watch);
+}
 
-	c->nwatches++;
-	c->new_watch = 1;
-	n->watch = watch;
-	n->next = c->watches;
-	c->watches = n;
+static void watch_list_remove(LCon *c, DBusWatch *watch)
+{
+	DBusWatch *prev, *next;
 
-	return TRUE;
+	if (watch == c->active) {
+		c->active = dbus_watch_get_data(watch);
+		dbus_watch_set_data(watch, NULL, NULL);
+		c->nactive--;
+		c->watches_changed = 1;
+		return;
+	}
+
+	next = c->active;
+	while (next) {
+		prev = next;
+		next = dbus_watch_get_data(prev);
+
+		if (watch == next) {
+			dbus_watch_set_data(prev,
+					dbus_watch_get_data(watch), NULL);
+			dbus_watch_set_data(watch, NULL, NULL);
+			c->nactive--;
+			c->watches_changed = 1;
+			return;
+		}
+	}
+	/* Watch wasn't found */
 }
 
 static void remove_watch_cb(DBusWatch *watch, LCon *c)
 {
-	wlist *p;
 #ifdef DEBUG
 	printf("Remove watch: ");
 	dump_watch(watch);
 	fflush(stdout);
 #endif
-	p = &c->watches;
-	while (*p && (*p)->watch != watch)
-		p = &(*p)->next;
 
-	if (*p) {
-		wlist n = *p;
+	if (dbus_watch_get_enabled(watch) == FALSE)
+		return;
 
-		*p = n->next;
-		free(n);
-
-		c->nwatches--;
-		c->new_watch = 1;
-	}
+	watch_list_remove(c, watch);
 }
 
 static void toggle_watch_cb(DBusWatch *watch, LCon *c)
@@ -156,9 +189,9 @@ static void toggle_watch_cb(DBusWatch *watch, LCon *c)
 	fflush(stdout);
 #endif
 	if (dbus_watch_get_enabled(watch))
-		(void)add_watch_cb(watch, c);
+		(void)watch_list_insert(c, watch);
 	else
-		remove_watch_cb(watch, c);
+		watch_list_remove(c, watch);
 }
 
 static LCon *bus_check(lua_State *L, int index)
@@ -456,17 +489,8 @@ static int bus_register_signal(lua_State *L)
  */
 static int bus_gc(lua_State *L)
 {
-	wlist w;
-
 	LCon *c = lua_touserdata(L, 1);
 	dbus_connection_unref(c->conn);
-
-	w = c->watches;
-	while (w) {
-		wlist tmp = w;
-		w = w->next;
-		free(tmp);
-	}
 
 	return 0;
 }
@@ -476,14 +500,14 @@ static int bus_gc(lua_State *L)
  */
 static struct pollfd *make_poll_struct(int n, LCon **c, nfds_t *nfds)
 {
-	wlist w;
 	struct pollfd *p;
 	struct pollfd *fds;
 	nfds_t total = 0;
 	int i;
+	DBusWatch *watch;
 
 	for (i = 0; i < n; i++)
-		total += c[i]->nwatches;
+		total += c[i]->nactive;
 	*nfds = total;
 
 	fds = malloc(total * sizeof(struct pollfd));
@@ -492,10 +516,11 @@ static struct pollfd *make_poll_struct(int n, LCon **c, nfds_t *nfds)
 
 	p = fds;
 	for (i = 0; i < n; i++) {
-		for (w = c[i]->watches; w; w = w->next) {
-			unsigned int flags = dbus_watch_get_flags(w->watch);
+		for (watch = c[i]->active; watch;
+				watch = dbus_watch_get_data(watch)) {
+			unsigned int flags = dbus_watch_get_flags(watch);
 
-			p->fd = dbus_watch_get_unix_fd(w->watch);
+			p->fd = dbus_watch_get_unix_fd(watch);
 			p->events = POLLERR | POLLHUP;
 			p->revents = 0;
 
@@ -507,7 +532,7 @@ static struct pollfd *make_poll_struct(int n, LCon **c, nfds_t *nfds)
 			p++;
 		}
 
-		c[i]->new_watch = 0;
+		c[i]->watches_changed = 0;
 	}
 
 	return fds;
@@ -527,7 +552,7 @@ static inline unsigned int dispatchall(int n, LCon **c)
 					== DBUS_DISPATCH_DATA_REMAINS);
 		}
 
-		r |= c[i]->new_watch;
+		r |= c[i]->watches_changed;
 	}
 
 	return r;
@@ -536,11 +561,11 @@ static inline unsigned int dispatchall(int n, LCon **c)
 static inline void handleall(int n, LCon **c, struct pollfd *p)
 {
 	int i;
+	DBusWatch *watch;
 
 	for (i = 0; i < n; i++) {
-		wlist w;
-
-		for (w = c[i]->watches; w; w = w->next) {
+		for (watch = c[i]->active; watch;
+				watch = dbus_watch_get_data(watch)) {
 			if (p->revents) {
 				unsigned int flags = 0;
 
@@ -553,7 +578,7 @@ static inline void handleall(int n, LCon **c, struct pollfd *p)
 				if (p->revents & POLLHUP)
 					flags |= DBUS_WATCH_HANGUP;
 
-				(void)dbus_watch_handle(w->watch, flags);
+				(void)dbus_watch_handle(watch, flags);
 				p->revents = 0;
 			}
 			p++;
@@ -677,8 +702,8 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 	if (c == NULL)
 		return error(L, "Out of memory");
 	c->conn = conn;
-	c->nwatches = 0;
-	c->watches = NULL;
+	c->nactive = 0;
+	c->active = NULL;
 
 	/* set watch functions */
 	if (!dbus_connection_set_watch_functions(conn,
