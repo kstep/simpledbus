@@ -600,21 +600,24 @@ static int simpledbus_mainloop(lua_State *L)
 	if (mainThread)
 		return luaL_error(L, "Another main loop is already running");
 
+	/* make sure the stack can hold all the "fenv"'s of
+	 * the connections (and a bit more) */
+	if (!lua_checkstack(L, n+3))
+		return error(L, "Out of memory");
+
 	c = malloc(n * sizeof(LCon *));
 	if (c == NULL)
 		return error(L, "Out of memory");
 
-	for (i = 1; i <= n; i++) {
-		c[i-1] = bus_check(L, i);
-		lua_getfenv(L, i);
-		lua_replace(L, i);
-		c[i-1]->index = i;
+	for (i = 0; i < n; i++) {
+		c[i] = bus_check(L, i+1);
+		lua_getfenv(L, i+1);
+		c[i]->index = lua_gettop(L);
 	}
 
 	fds = make_poll_struct(n, c, &nfds);
 	if (fds == NULL) {
 		free(c);
-		lua_settop(L, 0);
 		return error(L, "Out of memory");
 	}
 
@@ -632,7 +635,6 @@ static int simpledbus_mainloop(lua_State *L)
 			fds = make_poll_struct(n, c, &nfds);
 			if (fds == NULL) {
 				free(c);
-				lua_settop(L, 0);
 				mainThread = NULL;
 				return error(L, "Out of memory");
 			}
@@ -644,7 +646,6 @@ static int simpledbus_mainloop(lua_State *L)
 		if (poll(fds, nfds, -1) < 0) {
 			free(c);
 			free(fds);
-			lua_settop(L, 0);
 			mainThread = NULL;
 #if 1
 			lua_pushnil(L);
@@ -664,7 +665,6 @@ static int simpledbus_mainloop(lua_State *L)
 
 	free(c);
 	free(fds);
-	lua_settop(L, 0);
 
 	mainThread = NULL;
 
