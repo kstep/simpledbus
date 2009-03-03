@@ -697,6 +697,14 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 	if (conn == NULL)
 		return error(L, "Couldn't create connection");
 
+	lua_pushlightuserdata(L, conn);
+	lua_rawget(L, lua_upvalueindex(2)); /* connection table */
+	if (lua_type(L, -1) == LUA_TUSERDATA) {
+		dbus_connection_unref(conn);
+		return 1;
+	} else
+		lua_settop(L, 0);
+
 	/* create new userdata for the bus */
 	c = lua_newuserdata(L, sizeof(LCon));
 	if (c == NULL)
@@ -712,7 +720,6 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 				(DBusWatchToggledFunction)toggle_watch_cb,
 				c, NULL)) {
 		dbus_connection_unref(conn);
-		lua_pop(L, 1);
 		return error(L, "Error setting watch functions");
 	}
 
@@ -721,20 +728,32 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 				(DBusHandleMessageFunction)signal_handler,
 				c, NULL)) {
 		dbus_connection_unref(conn);
-		lua_pop(L, 1);
 		return error(L, "Error adding filter");
 	}
 
 	/* set the metatable */
 	lua_pushvalue(L, lua_upvalueindex(1));
-	lua_setmetatable(L, -2);
+	lua_setmetatable(L, 1);
 
 	/* create new environment table for
 	 * signal handlers and running threads */
 	lua_newtable(L);
-	lua_setfenv(L, -2);
+	lua_setfenv(L, 1);
+
+	/* insert the connection in the connection table */
+	lua_pushlightuserdata(L, conn);
+	lua_pushvalue(L, 1);
+	lua_rawset(L, lua_upvalueindex(2));
 
 	return 1;
+}
+
+/*
+ * SessionBus()
+ */
+static int simpledbus_session_bus(lua_State *L)
+{
+	return new_connection(L, dbus_bus_get(DBUS_BUS_SESSION, &err));
 }
 
 /*
@@ -746,11 +765,20 @@ static int simpledbus_system_bus(lua_State *L)
 }
 
 /*
- * SessionBus()
+ * StarterBus()
  */
-static int simpledbus_session_bus(lua_State *L)
+static int simpledbus_starter_bus(lua_State *L)
 {
-	return new_connection(L, dbus_bus_get(DBUS_BUS_SESSION, &err));
+	return new_connection(L, dbus_bus_get(DBUS_BUS_STARTER, &err));
+}
+
+/*
+ * open()
+ */
+static int simpledbus_open(lua_State *L)
+{
+	return new_connection(L,
+			dbus_connection_open(luaL_checkstring(L, 1), &err));
 }
 
 /*
@@ -782,20 +810,45 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	lua_pushvalue(L, 3);
 	lua_setfield(L, 3, "__index");
 
-	/* insert the system_bus function */
-	lua_pushvalue(L, 3); /* upvalue 1: DBus */
-	lua_pushcclosure(L, simpledbus_system_bus, 1);
-	lua_setfield(L, 2, "SystemBus");
-
-	/* insert the session_bus function */
-	lua_pushvalue(L, 3); /* upvalue 1: DBus */
-	lua_pushcclosure(L, simpledbus_session_bus, 1);
-	lua_setfield(L, 2, "SessionBus");
-
 	/* insert the mainloop() function*/
 	lua_pushvalue(L, 3); /* upvalue 1: DBus */
 	lua_pushcclosure(L, simpledbus_mainloop, 1);
 	lua_setfield(L, 2, "mainloop");
+
+	/* create table for connections and let
+	 * the values be weak references */
+	lua_newtable(L);
+	lua_createtable(L, 0, 1);
+	lua_pushliteral(L, "v");
+	lua_setfield(L, 5, "__mode");
+	lua_setmetatable(L, 4);
+
+	/* insert the SessionBus() function */
+	lua_pushvalue(L, 3); /* upvalue 1: DBus */
+	lua_pushvalue(L, 4); /* upvalue 2: connection table */
+	lua_pushcclosure(L, simpledbus_session_bus, 2);
+	lua_setfield(L, 2, "SessionBus");
+
+	/* insert the SystemBus() function */
+	lua_pushvalue(L, 3); /* upvalue 1: DBus */
+	lua_pushvalue(L, 4); /* upvalue 2: connection table */
+	lua_pushcclosure(L, simpledbus_system_bus, 2);
+	lua_setfield(L, 2, "SystemBus");
+
+	/* insert the StarterBus() function */
+	lua_pushvalue(L, 3); /* upvalue 1: DBus */
+	lua_pushvalue(L, 4); /* upvalue 2: connection table */
+	lua_pushcclosure(L, simpledbus_starter_bus, 2);
+	lua_setfield(L, 2, "StarterBus");
+
+	/* insert the open() function */
+	lua_pushvalue(L, 3); /* upvalue 1: DBus */
+	lua_pushvalue(L, 4); /* upvalue 2: connection table */
+	lua_pushcclosure(L, simpledbus_open, 2);
+	lua_setfield(L, 2, "open");
+
+	/* pop connection table */
+	lua_settop(L, 3);
 
 	/* insert DBus methods */
 	for (p = bus_funcs; p->name; p++) {
