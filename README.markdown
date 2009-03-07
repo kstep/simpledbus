@@ -10,7 +10,7 @@ interact with objects and act on signals from [DBus][2]. So far it can only do
 method calls and listen for signals, but support for exporting objects and
 sending signals is planned.
 
-SimpleDBus implements a simple `poll()`-based main loop based so scripts can
+SimpleDBus implements a simple `poll()`-based main loop so scripts can
 listen for signals and make asynchronous method calls on several busses at
 a time.
 
