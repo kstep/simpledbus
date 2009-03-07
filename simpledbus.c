@@ -417,9 +417,9 @@ static void add_match(DBusConnection *conn,
 	sprintf(rule, "type='signal',path='%s',interface='%s',member='%s'",
 			object, interface, signal);
 
-	/*
+#ifdef DEBUG
 	printf("added rule=\"%s\"\n", rule); fflush(stdout);
-	*/
+#endif
 
 	/* add the rule */
 	dbus_bus_add_match(conn, rule, &err);
@@ -437,47 +437,43 @@ static void add_match(DBusConnection *conn,
 static int bus_register_signal(lua_State *L)
 {
 	DBusConnection *conn = bus_check(L, 1)->conn;
+	const char *object = luaL_checkstring(L, 2);
+	const char *interface = luaL_checkstring(L, 3);
+	const char *signal = luaL_checkstring(L, 4);
 
-	if (lua_gettop(L) < 5)
-		return error(L, "Too few arguments");
+	luaL_checktype(L, 5, LUA_TFUNCTION);
+
+	/* drop extra arguments */
+	lua_settop(L, 5);
 
 	/* get the signal handler table */
 	lua_getfenv(L, 1);
+	/* ..and insert it before the function */
+	lua_insert(L, 5);
 
-	{
-		const char *object = lua_tostring(L, 2);
-		const char *interface = lua_tostring(L, 3);
-		const char *signal = lua_tostring(L, 4);
-		int unset;
+	/* push the signal string */
+	push_signal_string(L, object, interface, signal);
+	/* ..and insert it before the function */
+	lua_insert(L, 6);
 
-		/* push the signal string */
-		push_signal_string(L, object, interface, signal);
-
-		/* check if signal is already set */
-		lua_pushvalue(L, -1);
-		lua_rawget(L, -3);
-		unset = lua_isnil(L, -1);
-		lua_pop(L, 1);
-
+	/* check if signal is already set */
+	lua_pushvalue(L, 6);
+	lua_rawget(L, 5);
+	if (lua_isnil(L, 8)) {
 		/* if we didn't already set this signal
-		 * tell dbus we're interested */
-		if (unset) {
-			/* add the rule and check for errors */
-			add_match(conn, object, interface, signal);
-			if (dbus_error_is_set(&err)) {
-				lua_pop(L, 2);
-				lua_pushnil(L);
-				lua_pushstring(L, err.message);
-				dbus_error_free(&err);
-				return 2;
-			}
+		   add the rule and check for errors */
+		add_match(conn, object, interface, signal);
+		if (dbus_error_is_set(&err)) {
+			lua_pushnil(L);
+			lua_pushstring(L, err.message);
+			dbus_error_free(&err);
+			return 2;
 		}
 	}
+	lua_settop(L, 7);
 
 	/* add the function to the signal handler table */
-	lua_pushvalue(L, 5);
-	lua_rawset(L, -3); /* signal handler table */
-	lua_pop(L, 1);
+	lua_rawset(L, 5);
 
 	/* return true */
 	lua_pushboolean(L, 1);
