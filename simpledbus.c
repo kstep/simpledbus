@@ -425,6 +425,26 @@ static void add_match(DBusConnection *conn,
 	dbus_bus_add_match(conn, rule, &err);
 }
 
+static void remove_match(DBusConnection *conn,
+		const char *object,
+		const char *interface,
+		const char *signal)
+{
+	char *rule = alloca(45 + strlen(object)
+			+ strlen(interface) + strlen(signal));
+
+	/* construct rule to catch the signal messages */
+	sprintf(rule, "type='signal',path='%s',interface='%s',member='%s'",
+			object, interface, signal);
+
+#ifdef DEBUG
+	printf("removed rule=\"%s\"\n", rule); fflush(stdout);
+#endif
+
+	/* add the rule */
+	dbus_bus_remove_match(conn, rule, &err);
+}
+
 /*
  * DBus:register_signal()
  *
@@ -473,6 +493,51 @@ static int bus_register_signal(lua_State *L)
 	lua_settop(L, 7);
 
 	/* add the function to the signal handler table */
+	lua_rawset(L, 5);
+
+	/* return true */
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
+/*
+ * DBus:unregister_signal()
+ *
+ * argument 1: connection
+ * argument 2: object
+ * argument 3: interface
+ * argument 4: signal
+ */
+static int bus_unregister_signal(lua_State *L)
+{
+	DBusConnection *conn = bus_check(L, 1)->conn;
+	const char *object = luaL_checkstring(L, 2);
+	const char *interface = luaL_checkstring(L, 3);
+	const char *signal = luaL_checkstring(L, 4);
+
+	/* drop extra arguments */
+	lua_settop(L, 4);
+
+	/* get the signal handler table */
+	lua_getfenv(L, 1);
+
+	/* push the signal string */
+	push_signal_string(L, object, interface, signal);
+
+	/* check if signal is set at all*/
+	lua_pushvalue(L, 6);
+	lua_rawget(L, 5);
+	if (lua_isnil(L, 7)){
+		lua_pushnil(L);
+		lua_pushliteral(L, "signal not set");
+		return 2;
+	}
+	lua_settop(L, 6);
+
+	remove_match(conn, object, interface, signal);
+
+	/* set sh_table[sh_string] = nil */
+	lua_pushnil(L);
 	lua_rawset(L, 5);
 
 	/* return true */
@@ -785,6 +850,7 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	luaL_Reg bus_funcs[] = {
 		{"call_method", bus_call_method},
 		{"register_signal", bus_register_signal},
+		{"unregister_signal", bus_unregister_signal},
 		{NULL, NULL}
 	};
 	luaL_Reg *p;

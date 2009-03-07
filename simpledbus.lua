@@ -98,6 +98,16 @@ do
    end
 end
 
+do
+   local unregister_signal = M.DBus.unregister_signal
+   function M.DBus:unregister_auto_signal(signal)
+      return unregister_signal(self,
+         signal.object,
+         signal.interface,
+         signal.name)
+   end
+end
+
 return M
 
 -- vi: syntax=lua ts=3 sw=3 et:
