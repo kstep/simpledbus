@@ -650,6 +650,7 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
  *
  * argument 1: connection
  * argument 2: path
+ * argument 3: method table
  */
 static int bus_register_object_path(lua_State *L)
 {
@@ -658,12 +659,17 @@ static int bus_register_object_path(lua_State *L)
 	DBusObjectPathVTable *vt;
 	lua_State *T;
 
+	luaL_checktype(L, 3, LUA_TTABLE);
+
 	/* drop extra arguments */
-	lua_settop(L, 2);
+	lua_settop(L, 3);
+
+	/* move method table before path */
+	lua_insert(L, 2);
 
 	/* get the signal/thread table of the conection */
 	lua_getfenv(L, 1);
-	/* ..and move it before the path */
+	/* ..and move it before the method table */
 	lua_insert(L, 2);
 
 	/* create thread for storing object data
@@ -700,12 +706,11 @@ static int bus_register_object_path(lua_State *L)
 	/* save the thread in the thread table */
 	lua_rawset(L, 2);
 
-	/* create method table */
-	lua_newtable(T);
+	/* move method table to the thread*/
+	lua_xmove(L, T, 1);
 
-	/* return the method table */
-	lua_pushvalue(T, 3);
-	lua_xmove(T, L, 1);
+	/* return true */
+	lua_pushboolean(L, 1);
 	return 1;
 }
 
