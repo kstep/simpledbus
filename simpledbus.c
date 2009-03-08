@@ -235,15 +235,28 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 			dbus_set_error_from_message(&err, msg);
 			lua_pushstring(T, err.message);
 			dbus_error_free(&err);
+			dbus_message_unref(msg);
 			nargs = 2;
 			break;
 		default:
+			dbus_message_unref(msg);
 			nargs = error(T, "Unknown reply");
 		}
 	}
 
 	switch (lua_resume(T, nargs)) {
 	case 0: /* thread finished */
+#ifdef DEBUG
+		printf("Thread finished, lua_gettop(T) = %i, "
+				"lua_type(T, 1) = %s\n",
+				lua_gettop(T),
+				lua_typename(T, lua_type(T, 1)));
+#endif
+		if (lua_iscfunction(T, 1) && lua_tocfunction(T, 1)(T)) {
+			/* move error message to main thread and error */
+			lua_xmove(T, mainThread, 1);
+			lua_error(mainThread);
+		}
 		/* remove it from the running threads table */
 		lua_pushthread(T);
 		lua_xmove(T, mainThread, 1);
@@ -345,8 +358,11 @@ static int bus_call_method(lua_State *L)
 		dbus_set_error_from_message(&err, ret);
 		lua_pushstring(L, err.message);
 		dbus_error_free(&err);
+		dbus_message_unref(ret);
 		return 2;
 	}
+
+	dbus_message_unref(ret);
 
 	return error(L, "Unknown reply");
 }
@@ -367,21 +383,18 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 			dbus_message_get_path(msg),
 			dbus_message_get_interface(msg),
 			dbus_message_get_member(msg));
-	/*
+#ifdef DEBUG
 	printf("received \"%s\"\n", lua_tostring(mainThread, -1));
 	fflush(stdout);
-	*/
-
+#endif
 	lua_rawget(mainThread, c->index); /* signal handler table */
-
-	if (lua_type(mainThread, -1) != LUA_TFUNCTION) {
-		lua_pop(mainThread, 1);
+	if (lua_type(mainThread, -1) != LUA_TFUNCTION)
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
-	}
 
 	/* create new Lua thread and move the
 	 * Lua signal handler there */
 	T = lua_newthread(mainThread);
+	lua_pushnil(T);
 	lua_insert(mainThread, -2);
 	lua_xmove(mainThread, T, 1);
 
@@ -416,11 +429,9 @@ static void add_match(DBusConnection *conn,
 	/* construct rule to catch the signal messages */
 	sprintf(rule, "type='signal',path='%s',interface='%s',member='%s'",
 			object, interface, signal);
-
 #ifdef DEBUG
 	printf("added rule=\"%s\"\n", rule); fflush(stdout);
 #endif
-
 	/* add the rule */
 	dbus_bus_add_match(conn, rule, &err);
 }
@@ -436,11 +447,9 @@ static void remove_match(DBusConnection *conn,
 	/* construct rule to catch the signal messages */
 	sprintf(rule, "type='signal',path='%s',interface='%s',member='%s'",
 			object, interface, signal);
-
 #ifdef DEBUG
 	printf("removed rule=\"%s\"\n", rule); fflush(stdout);
 #endif
-
 	/* add the rule */
 	dbus_bus_remove_match(conn, rule, &err);
 }
@@ -542,6 +551,164 @@ static int bus_unregister_signal(lua_State *L)
 
 	/* return true */
 	lua_pushboolean(L, 1);
+	return 1;
+}
+
+static int send_reply(lua_State *T)
+{
+	DBusConnection *conn = lua_touserdata(T, 2);
+	DBusMessage *ret = lua_touserdata(T, 3);
+	const char *signature = lua_tostring(T, 4);
+
+	if (signature && *signature != '\0')
+		add_arguments(T, 5, lua_gettop(T), signature, ret);
+
+	if (!dbus_connection_send(conn, ret, NULL))
+		luaL_error(mainThread, "Out of memory");
+
+	dbus_message_unref(ret);
+
+	return 0;
+}
+
+static DBusHandlerResult method_call_handler(DBusConnection *conn,
+		DBusMessage *msg, lua_State *T)
+{
+	lua_State *N;
+	DBusMessage *ret;
+
+#ifdef DEBUG
+	printf("Received message: path = %s,"
+			" interface = %s, member = %s\n",
+			dbus_message_get_path(msg),
+			dbus_message_get_interface(msg),
+			dbus_message_get_member(msg));
+	fflush(stdout);
+#endif
+
+	lua_pushfstring(T, "%s.%s",
+			dbus_message_get_interface(msg),
+			dbus_message_get_member(msg));
+
+	lua_rawget(T, 3);
+	if (!lua_istable(T, 4)) {
+		lua_settop(T, 3);
+#ifdef DEBUG
+		printf("..not handled\n"); fflush(stdout);
+#endif
+		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+	}
+
+	/* create a new thread to run the method in */
+	N = lua_newthread(T);
+	/* ..and insert it before the function table */
+	lua_insert(T, 4);
+
+	/* push the send_reply function */
+	lua_pushcclosure(N, send_reply, 0);
+
+	/* push the connection */
+	lua_pushlightuserdata(N, conn);
+
+	/* create new message return */
+	ret = dbus_message_new_method_return(msg);
+	/* ..and push it to N */
+	lua_pushlightuserdata(N, ret);
+
+	/* move the return signature and the function to N */
+	lua_rawgeti(T, 5, 2);
+	lua_rawgeti(T, 5, 3);
+	lua_xmove(T, N, 2);
+
+	/* forget about the function table */
+	lua_settop(T, 4);
+
+	dbus_message_ref(msg);
+	switch (lua_resume(N, push_arguments(N, msg))) {
+	case 0: /* thread finished */
+		if (send_reply(N)) {
+			/* move error message to main thread and error */
+			lua_xmove(N, mainThread, 1);
+			lua_error(mainThread);
+		}
+		/* forget about the thread */
+		lua_settop(T, 3);
+		break;
+	case LUA_YIELD:	/* thread yielded */
+		/* save it in the running threads table */
+		lua_pushboolean(T, 1);
+		lua_rawset(T, 1); /* thread table */
+		break;
+	default:
+		/* move error message to main thread and error */
+		lua_xmove(N, mainThread, 1);
+		lua_error(mainThread);
+	}
+
+	return DBUS_HANDLER_RESULT_HANDLED;
+}
+
+/*
+ * DBus:register_object_path()
+ *
+ * argument 1: connection
+ * argument 2: path
+ */
+static int bus_register_object_path(lua_State *L)
+{
+	LCon *c = bus_check(L, 1);
+	const char *path = luaL_checkstring(L, 2);
+	DBusObjectPathVTable *vt;
+	lua_State *T;
+
+	/* drop extra arguments */
+	lua_settop(L, 2);
+
+	/* get the signal/thread table of the conection */
+	lua_getfenv(L, 1);
+	/* ..and move it before the path */
+	lua_insert(L, 2);
+
+	/* create thread for storing object data
+	 * PS. yes, this is a bad hack >.< */
+	T = lua_newthread(L);
+	if (T == NULL) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "Out of memory");
+		return 2;
+	}
+
+	/* push the thread table to the thread */
+	lua_pushvalue(L, 2);
+	lua_xmove(L, T, 1);
+
+	/* push vtable */
+	vt = lua_newuserdata(T, sizeof(DBusObjectPathVTable));
+	if (vt == NULL) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "Out of memory");
+		return 2;
+	}
+
+	vt->unregister_function = NULL;
+	vt->message_function =
+		(DBusObjectPathMessageFunction)method_call_handler;
+
+	if (!dbus_connection_register_object_path(c->conn, path, vt, T)) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "Error registering object path");
+		return 2;
+	}
+
+	/* save the thread in the thread table */
+	lua_rawset(L, 2);
+
+	/* create method table */
+	lua_newtable(T);
+
+	/* return the method table */
+	lua_pushvalue(T, 3);
+	lua_xmove(T, L, 1);
 	return 1;
 }
 
@@ -700,7 +867,6 @@ static int simpledbus_mainloop(lua_State *L)
 				return error(L, "Out of memory");
 			}
 		}
-
 #ifdef DEBUG
 		printf("("); fflush(stdout);
 #endif
@@ -851,6 +1017,7 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 		{"call_method", bus_call_method},
 		{"register_signal", bus_register_signal},
 		{"unregister_signal", bus_unregister_signal},
+		{"register_object_path", bus_register_object_path},
 		{NULL, NULL}
 	};
 	luaL_Reg *p;
