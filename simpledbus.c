@@ -536,11 +536,8 @@ static int bus_unregister_signal(lua_State *L)
 	/* check if signal is set at all*/
 	lua_pushvalue(L, 6);
 	lua_rawget(L, 5);
-	if (lua_isnil(L, 7)){
-		lua_pushnil(L);
-		lua_pushliteral(L, "signal not set");
-		return 2;
-	}
+	if (lua_isnil(L, 7))
+		return luaL_error(L, "Signal not set");
 	lua_settop(L, 6);
 
 	remove_match(conn, object, interface, signal);
@@ -709,6 +706,44 @@ static int bus_register_object_path(lua_State *L)
 	/* return the method table */
 	lua_pushvalue(T, 3);
 	lua_xmove(T, L, 1);
+	return 1;
+}
+
+/*
+ * DBus:unregister_object_path()
+ *
+ * argument 1: connection
+ * argument 2: path
+ */
+static int bus_unregister_object_path(lua_State *L)
+{
+	LCon *c = bus_check(L, 1);
+	const char *path = luaL_checkstring(L, 2);
+
+	/* drop extra arguments */
+	lua_settop(L, 2);
+
+	/* get the signal/thread table of the conection */
+	lua_getfenv(L, 1);
+	/* ..and move it before the path */
+	lua_insert(L, 2);
+
+	lua_pushvalue(L, 3);
+	lua_rawget(L, 2);
+	if (!lua_isthread(L, 4))
+		return luaL_error(L, "Object path not registered");
+	lua_settop(L, 3);
+
+	lua_pushnil(L);
+	if (!dbus_connection_unregister_object_path(c->conn, path)) {
+		lua_pushliteral(L, "Out of memory");
+		return 2;
+	}
+
+	lua_rawset(L, 2);
+
+	/* return true */
+	lua_pushboolean(L, 1);
 	return 1;
 }
 
@@ -1018,6 +1053,7 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 		{"register_signal", bus_register_signal},
 		{"unregister_signal", bus_unregister_signal},
 		{"register_object_path", bus_register_object_path},
+		{"unregister_object_path", bus_unregister_object_path},
 		{NULL, NULL}
 	};
 	luaL_Reg *p;
