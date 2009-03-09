@@ -6,6 +6,14 @@ local DBus = require 'simpledbus'
 -- initialise and get handle for the session bus
 local bus = assert(DBus.SessionBus())
 
+-- set the connection name
+if assert(bus:request_name('org.lua.TestScript', 'do not queue'))
+      ~= 'primary owner' then
+   print "Couldn't get the name org.lua.TestScript."
+   print "Perhaps another instance is running?"
+   os.exit(1)
+end
+
 local function stringify(t)
    for i = 1, #t do
       local ti = t[i]
