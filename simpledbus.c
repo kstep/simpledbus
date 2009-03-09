@@ -1197,5 +1197,15 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	lua_pushnumber(L, (lua_Number)DBUS_REQUEST_NAME_REPLY_ALREADY_OWNER);
 	lua_rawset(L, 2);
 
+	lua_pushliteral(L, "RELEASE_NAME_REPLY_RELEASED");
+	lua_pushnumber(L, (lua_Number)DBUS_RELEASE_NAME_REPLY_RELEASED);
+	lua_rawset(L, 2);
+	lua_pushliteral(L, "RELEASE_NAME_REPLY_NON_EXISTENT");
+	lua_pushnumber(L, (lua_Number)DBUS_RELEASE_NAME_REPLY_NON_EXISTENT);
+	lua_rawset(L, 2);
+	lua_pushliteral(L, "RELEASE_NAME_REPLY_NOT_OWNER");
+	lua_pushnumber(L, (lua_Number)DBUS_RELEASE_NAME_REPLY_NOT_OWNER);
+	lua_rawset(L, 2);
+
 	return 1;
 }

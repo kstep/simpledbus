@@ -118,6 +118,15 @@ do
             'RequestName',
             'su', name, flags or 0)
    end
+
+   function M.Bus:release_name(name)
+      return call_method(self,
+            'org.freedesktop.DBus',
+            '/org/freedesktop/DBus',
+            'org.freedesktop.DBus',
+            'ReleaseName',
+            's', name)
+   end
 end
 
 return M
