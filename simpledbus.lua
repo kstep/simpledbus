@@ -52,7 +52,7 @@ end
 
 do
    local Introspect = M.new_method('Introspect',
-      'org.freedesktop.DBus.Introspectable')
+      M.INTERFACE_INTROSPECTABLE)
    M.Introspect = Introspect
 
    local Proxy = M.Proxy
@@ -110,22 +110,17 @@ end
 
 do
    local call_method = M.Bus.call_method
+   local target, object, interface =
+      M.SERVICE_DBUS, M.PATH_DBUS, M.INTERFACE_DBUS
+
    function M.Bus:request_name(name, flags)
-      return call_method(self,
-            'org.freedesktop.DBus',
-            '/org/freedesktop/DBus',
-            'org.freedesktop.DBus',
-            'RequestName',
-            'su', name, flags or 0)
+      return call_method(self, target, object, interface,
+            'RequestName', 'su', name, flags or 0)
    end
 
    function M.Bus:release_name(name)
-      return call_method(self,
-            'org.freedesktop.DBus',
-            '/org/freedesktop/DBus',
-            'org.freedesktop.DBus',
-            'ReleaseName',
-            's', name)
+      return call_method(self, target, object, interface,
+            'ReleaseName', 's', name)
    end
 end
 

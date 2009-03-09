@@ -1040,6 +1040,15 @@ static int simpledbus_open(lua_State *L)
 			dbus_connection_open(luaL_checkstring(L, 1), &err));
 }
 
+#define set_dbus_string_constant(L, name, i) \
+	lua_pushliteral(L, #name); \
+	lua_pushliteral(L, DBUS_##name); \
+	lua_rawset(L, i)
+#define set_dbus_number_constant(L, name, i) \
+	lua_pushliteral(L, #name); \
+	lua_pushnumber(L, (lua_Number)DBUS_##name); \
+	lua_rawset(L, i)
+
 /*
  * It starts...
  */
@@ -1169,38 +1178,28 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	lua_setfield(L, 2, "Proxy");
 
 	/* insert constants */
-	lua_pushliteral(L, "NAME_FLAG_ALLOW_REPLACEMENT");
-	lua_pushnumber(L, (lua_Number)DBUS_NAME_FLAG_ALLOW_REPLACEMENT);
-	lua_rawset(L, 2);
-	lua_pushliteral(L, "NAME_FLAG_REPLACE_EXISTING");
-	lua_pushnumber(L, (lua_Number)DBUS_NAME_FLAG_REPLACE_EXISTING);
-	lua_rawset(L, 2);
-	lua_pushliteral(L, "NAME_FLAG_DO_NOT_QUEUE");
-	lua_pushnumber(L, (lua_Number)DBUS_NAME_FLAG_DO_NOT_QUEUE);
-	lua_rawset(L, 2);
+	set_dbus_string_constant(L, SERVICE_DBUS, 2);
+	set_dbus_string_constant(L, PATH_DBUS, 2);
+	set_dbus_string_constant(L, INTERFACE_DBUS, 2);
+	set_dbus_string_constant(L, INTERFACE_PROPERTIES, 2);
+	set_dbus_string_constant(L, INTERFACE_PEER, 2);
+	set_dbus_string_constant(L, INTERFACE_LOCAL, 2);
 
-	lua_pushliteral(L, "REQUEST_NAME_REPLY_PRIMARY_OWNER");
-	lua_pushnumber(L, (lua_Number)DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER);
-	lua_rawset(L, 2);
-	lua_pushliteral(L, "REQUEST_NAME_REPLY_IN_QUEUE");
-	lua_pushnumber(L, (lua_Number)DBUS_REQUEST_NAME_REPLY_IN_QUEUE);
-	lua_rawset(L, 2);
-	lua_pushliteral(L, "REQUEST_NAME_REPLY_EXISTS");
-	lua_pushnumber(L, (lua_Number)DBUS_REQUEST_NAME_REPLY_EXISTS);
-	lua_rawset(L, 2);
-	lua_pushliteral(L, "REQUEST_NAME_REPLY_ALREADY_OWNER");
-	lua_pushnumber(L, (lua_Number)DBUS_REQUEST_NAME_REPLY_ALREADY_OWNER);
-	lua_rawset(L, 2);
+	set_dbus_number_constant(L, NAME_FLAG_ALLOW_REPLACEMENT, 2);
+	set_dbus_number_constant(L, NAME_FLAG_REPLACE_EXISTING, 2);
+	set_dbus_number_constant(L, NAME_FLAG_DO_NOT_QUEUE, 2);
 
-	lua_pushliteral(L, "RELEASE_NAME_REPLY_RELEASED");
-	lua_pushnumber(L, (lua_Number)DBUS_RELEASE_NAME_REPLY_RELEASED);
-	lua_rawset(L, 2);
-	lua_pushliteral(L, "RELEASE_NAME_REPLY_NON_EXISTENT");
-	lua_pushnumber(L, (lua_Number)DBUS_RELEASE_NAME_REPLY_NON_EXISTENT);
-	lua_rawset(L, 2);
-	lua_pushliteral(L, "RELEASE_NAME_REPLY_NOT_OWNER");
-	lua_pushnumber(L, (lua_Number)DBUS_RELEASE_NAME_REPLY_NOT_OWNER);
-	lua_rawset(L, 2);
+	set_dbus_number_constant(L, REQUEST_NAME_REPLY_PRIMARY_OWNER, 2);
+	set_dbus_number_constant(L, REQUEST_NAME_REPLY_IN_QUEUE, 2);
+	set_dbus_number_constant(L, REQUEST_NAME_REPLY_EXISTS, 2);
+	set_dbus_number_constant(L, REQUEST_NAME_REPLY_ALREADY_OWNER, 2);
+
+	set_dbus_number_constant(L, RELEASE_NAME_REPLY_RELEASED, 2);
+	set_dbus_number_constant(L, RELEASE_NAME_REPLY_NON_EXISTENT, 2);
+	set_dbus_number_constant(L, RELEASE_NAME_REPLY_NOT_OWNER, 2);
+
+	set_dbus_number_constant(L, START_REPLY_SUCCESS, 2);
+	set_dbus_number_constant(L, START_REPLY_ALREADY_RUNNING, 2);
 
 	return 1;
 }
