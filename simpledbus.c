@@ -349,6 +349,7 @@ static int bus_call_method(lua_State *L)
 	}
 	if (ret == NULL)
 		return error(L, "Reply null");
+
 	switch (dbus_message_get_type(ret)) {
 	case DBUS_MESSAGE_TYPE_METHOD_RETURN:
 		/* read the parameters */
@@ -388,8 +389,10 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 	fflush(stdout);
 #endif
 	lua_rawget(mainThread, c->index); /* signal handler table */
-	if (lua_type(mainThread, -1) != LUA_TFUNCTION)
+	if (lua_type(mainThread, -1) != LUA_TFUNCTION) {
+		lua_pop(mainThread, 1);
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+	}
 
 	/* create new Lua thread and move the
 	 * Lua signal handler there */
