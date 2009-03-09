@@ -756,64 +756,6 @@ static int bus_unregister_object_path(lua_State *L)
 }
 
 /*
- * Bus:request_name()
- *
- * argument 1: connection
- * argument 2: name
- */
-static int bus_request_name(lua_State *L)
-{
-	DBusConnection *conn = bus_check(L, 1)->conn;
-	const char *name = luaL_checkstring(L, 2);
-	unsigned int flags = 0;
-	int top = lua_gettop(L);
-	int i;
-
-	for (i = 3; i <= top; i++) {
-		const char *s = luaL_checkstring(L, i);
-
-		switch (s[0]) {
-		case 'a':
-		case 'A':
-			flags |= DBUS_NAME_FLAG_ALLOW_REPLACEMENT;
-			break;
-		case 'd':
-		case 'D':
-			flags |= DBUS_NAME_FLAG_DO_NOT_QUEUE;
-			break;
-		case 'r':
-		case 'R':
-			flags |= DBUS_NAME_FLAG_REPLACE_EXISTING;
-			break;
-		}
-	}
-
-	switch (dbus_bus_request_name(conn, name, flags, &err)) {
-	case DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER:
-		lua_pushliteral(L, "primary owner");
-		break;
-	case DBUS_REQUEST_NAME_REPLY_IN_QUEUE:
-		lua_pushliteral(L, "in queue");
-		break;
-	case DBUS_REQUEST_NAME_REPLY_EXISTS:
-		lua_pushliteral(L, "exists");
-		break;
-	case DBUS_REQUEST_NAME_REPLY_ALREADY_OWNER:
-		lua_pushliteral(L, "already owner");
-		break;
-	case -1:
-		lua_pushnil(L);
-		lua_pushstring(L, err.message);
-		dbus_error_free(&err);
-		return 2;
-	default:
-		lua_pushliteral(L, "unknown result");
-	}
-
-	return 1;
-}
-
-/*
  * DBus.__gc()
  */
 static int bus_gc(lua_State *L)
@@ -1120,7 +1062,6 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 		{"unregister_signal", bus_unregister_signal},
 		{"register_object_path", bus_register_object_path},
 		{"unregister_object_path", bus_unregister_object_path},
-		{"request_name", bus_request_name},
 		{NULL, NULL}
 	};
 	luaL_Reg *p;
@@ -1231,6 +1172,30 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 
 	/* insert the Proxy metatable */
 	lua_setfield(L, 2, "Proxy");
+
+	/* insert constants */
+	lua_pushliteral(L, "NAME_FLAG_ALLOW_REPLACEMENT");
+	lua_pushnumber(L, (lua_Number)DBUS_NAME_FLAG_ALLOW_REPLACEMENT);
+	lua_rawset(L, 2);
+	lua_pushliteral(L, "NAME_FLAG_REPLACE_EXISTING");
+	lua_pushnumber(L, (lua_Number)DBUS_NAME_FLAG_REPLACE_EXISTING);
+	lua_rawset(L, 2);
+	lua_pushliteral(L, "NAME_FLAG_DO_NOT_QUEUE");
+	lua_pushnumber(L, (lua_Number)DBUS_NAME_FLAG_DO_NOT_QUEUE);
+	lua_rawset(L, 2);
+
+	lua_pushliteral(L, "REQUEST_NAME_REPLY_PRIMARY_OWNER");
+	lua_pushnumber(L, (lua_Number)DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER);
+	lua_rawset(L, 2);
+	lua_pushliteral(L, "REQUEST_NAME_REPLY_IN_QUEUE");
+	lua_pushnumber(L, (lua_Number)DBUS_REQUEST_NAME_REPLY_IN_QUEUE);
+	lua_rawset(L, 2);
+	lua_pushliteral(L, "REQUEST_NAME_REPLY_EXISTS");
+	lua_pushnumber(L, (lua_Number)DBUS_REQUEST_NAME_REPLY_EXISTS);
+	lua_rawset(L, 2);
+	lua_pushliteral(L, "REQUEST_NAME_REPLY_ALREADY_OWNER");
+	lua_pushnumber(L, (lua_Number)DBUS_REQUEST_NAME_REPLY_ALREADY_OWNER);
+	lua_rawset(L, 2);
 
 	return 1;
 }

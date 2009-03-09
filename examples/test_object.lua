@@ -7,8 +7,9 @@ local DBus = require 'simpledbus'
 local bus = assert(DBus.SessionBus())
 
 -- set the connection name
-if assert(bus:request_name('org.lua.TestScript', 'do not queue'))
-      ~= 'primary owner' then
+if assert(bus:request_name('org.lua.TestScript',
+         DBus.NAME_FLAG_DO_NOT_QUEUE))
+      ~= DBus.REQUEST_NAME_REPLY_PRIMARY_OWNER then
    print "Couldn't get the name org.lua.TestScript."
    print "Perhaps another instance is running?"
    os.exit(1)

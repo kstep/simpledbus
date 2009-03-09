@@ -108,6 +108,18 @@ do
    end
 end
 
+do
+   local call_method = M.Bus.call_method
+   function M.Bus:request_name(name, flags)
+      return call_method(self,
+            'org.freedesktop.DBus',
+            '/org/freedesktop/DBus',
+            'org.freedesktop.DBus',
+            'RequestName',
+            'su', name, flags or 0)
+   end
+end
+
 return M
 
 -- vi: syntax=lua ts=3 sw=3 et:
