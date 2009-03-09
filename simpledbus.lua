@@ -82,7 +82,7 @@ do
    function M.Method.__call(method, proxy, ...)
       return call_method(
          proxy.bus, proxy.target, proxy.object,
-         method.name, method.interface,
+         method.interface, method.name,
          method.signature, ...)
    end
 end

@@ -94,8 +94,8 @@ for i, objpath in ipairs(adapters) do
          local info = assert(dbus:call_method(
             'org.bluez',         -- target
             objpath,             -- object path
-            'GetProperties',     -- method name
-            'org.bluez.Device')) -- interface
+            'org.bluez.Device',  -- interface
+            'GetProperties'))    -- method name
             -- '',               -- signature (defaults to '')
             -- ...))             -- arguments
 

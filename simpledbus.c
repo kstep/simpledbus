@@ -278,17 +278,17 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
  * argument 1: bus
  * argument 2: target
  * argument 3: object
- * argument 4: method
- * argument 5: interface
+ * argument 4: interface
+ * argument 5: method
  * argument 6: signature
  * ...
  */
 static int bus_call_method(lua_State *L)
 {
+	LCon *c = bus_check(L, 1);
 	const char *interface;
 	DBusMessage *msg;
 	DBusMessage *ret;
-	LCon *c = bus_check(L, 1);
 
 #ifdef DEBUG
 	printf("Calling:\n  %s\n  %s\n  %s\n  %s\n  %s\n",
@@ -301,7 +301,7 @@ static int bus_call_method(lua_State *L)
 #endif
 
 	/* create a new method call and check for errors */
-	interface = lua_tostring(L, 5);
+	interface = lua_tostring(L, 4);
 	if (interface && *interface == '\0')
 		interface = NULL;
 
@@ -309,7 +309,7 @@ static int bus_call_method(lua_State *L)
 				lua_tostring(L, 2),
 				lua_tostring(L, 3),
 				interface,
-				lua_tostring(L, 4));
+				lua_tostring(L, 5));
 	if (msg == NULL)
 		return error(L, "Couldn't create message");
 
