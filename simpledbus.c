@@ -41,6 +41,7 @@
 #endif
 
 static DBusError err;
+static DBusObjectPathVTable vtable;
 static lua_State *mainThread = NULL;
 static unsigned int stop;
 
@@ -590,9 +591,9 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 			dbus_message_get_interface(msg),
 			dbus_message_get_member(msg));
 
-	lua_rawget(T, 3);
-	if (!lua_istable(T, 4)) {
-		lua_settop(T, 3);
+	lua_rawget(T, 2);
+	if (!lua_istable(T, 3)) {
+		lua_settop(T, 2);
 #ifdef DEBUG
 		printf("..not handled\n"); fflush(stdout);
 #endif
@@ -602,7 +603,7 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 	/* create a new thread to run the method in */
 	N = lua_newthread(T);
 	/* ..and insert it before the function table */
-	lua_insert(T, 4);
+	lua_insert(T, 3);
 
 	/* push the send_reply function */
 	lua_pushcclosure(N, send_reply, 0);
@@ -616,12 +617,12 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 	lua_pushlightuserdata(N, ret);
 
 	/* move the return signature and the function to N */
-	lua_rawgeti(T, 5, 2);
-	lua_rawgeti(T, 5, 3);
+	lua_rawgeti(T, 4, 2);
+	lua_rawgeti(T, 4, 3);
 	lua_xmove(T, N, 2);
 
 	/* forget about the function table */
-	lua_settop(T, 4);
+	lua_settop(T, 3);
 
 	dbus_message_ref(msg);
 	switch (lua_resume(N, push_arguments(N, msg))) {
@@ -632,7 +633,7 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 			lua_error(mainThread);
 		}
 		/* forget about the thread */
-		lua_settop(T, 3);
+		lua_settop(T, 2);
 		break;
 	case LUA_YIELD:	/* thread yielded */
 		/* save it in the running threads table */
@@ -659,7 +660,6 @@ static int bus_register_object_path(lua_State *L)
 {
 	LCon *c = bus_check(L, 1);
 	const char *path = luaL_checkstring(L, 2);
-	DBusObjectPathVTable *vt;
 	lua_State *T;
 
 	luaL_checktype(L, 3, LUA_TTABLE);
@@ -684,27 +684,16 @@ static int bus_register_object_path(lua_State *L)
 		return 2;
 	}
 
-	/* push the thread table to the thread */
-	lua_pushvalue(L, 2);
-	lua_xmove(L, T, 1);
-
-	/* push vtable */
-	vt = lua_newuserdata(T, sizeof(DBusObjectPathVTable));
-	if (vt == NULL) {
-		lua_pushnil(L);
-		lua_pushliteral(L, "Out of memory");
-		return 2;
-	}
-
-	vt->unregister_function = NULL;
-	vt->message_function =
-		(DBusObjectPathMessageFunction)method_call_handler;
-
-	if (!dbus_connection_register_object_path(c->conn, path, vt, T)) {
+	/*  register the object path */
+	if (!dbus_connection_register_object_path(c->conn, path, &vtable, T)) {
 		lua_pushnil(L);
 		lua_pushliteral(L, "Error registering object path");
 		return 2;
 	}
+
+	/* push the thread table to the thread */
+	lua_pushvalue(L, 2);
+	lua_xmove(L, T, 1);
 
 	/* save the thread in the thread table */
 	lua_rawset(L, 2);
@@ -1068,6 +1057,12 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 
 	/* initialise the errors */
 	dbus_error_init(&err);
+
+	/* initialise the vtable */
+	vtable.unregister_function = NULL;
+	vtable.message_function =
+		(DBusObjectPathMessageFunction)method_call_handler;
+
 
 	/* make a table for this module */
 	lua_newtable(L);
