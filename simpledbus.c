@@ -1040,11 +1040,11 @@ static int simpledbus_open(lua_State *L)
 			dbus_connection_open(luaL_checkstring(L, 1), &err));
 }
 
-#define set_dbus_string_constant(L, name, i) \
+#define set_dbus_string_constant(L, i, name) \
 	lua_pushliteral(L, #name); \
 	lua_pushliteral(L, DBUS_##name); \
 	lua_rawset(L, i)
-#define set_dbus_number_constant(L, name, i) \
+#define set_dbus_number_constant(L, i, name) \
 	lua_pushliteral(L, #name); \
 	lua_pushnumber(L, (lua_Number)DBUS_##name); \
 	lua_rawset(L, i)
@@ -1178,28 +1178,28 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	lua_setfield(L, 2, "Proxy");
 
 	/* insert constants */
-	set_dbus_string_constant(L, SERVICE_DBUS, 2);
-	set_dbus_string_constant(L, PATH_DBUS, 2);
-	set_dbus_string_constant(L, INTERFACE_DBUS, 2);
-	set_dbus_string_constant(L, INTERFACE_PROPERTIES, 2);
-	set_dbus_string_constant(L, INTERFACE_PEER, 2);
-	set_dbus_string_constant(L, INTERFACE_LOCAL, 2);
+	set_dbus_string_constant(L, 2, SERVICE_DBUS);
+	set_dbus_string_constant(L, 2, PATH_DBUS);
+	set_dbus_string_constant(L, 2, INTERFACE_DBUS);
+	set_dbus_string_constant(L, 2, INTERFACE_PROPERTIES);
+	set_dbus_string_constant(L, 2, INTERFACE_PEER);
+	set_dbus_string_constant(L, 2, INTERFACE_LOCAL);
 
-	set_dbus_number_constant(L, NAME_FLAG_ALLOW_REPLACEMENT, 2);
-	set_dbus_number_constant(L, NAME_FLAG_REPLACE_EXISTING, 2);
-	set_dbus_number_constant(L, NAME_FLAG_DO_NOT_QUEUE, 2);
+	set_dbus_number_constant(L, 2, NAME_FLAG_ALLOW_REPLACEMENT);
+	set_dbus_number_constant(L, 2, NAME_FLAG_REPLACE_EXISTING);
+	set_dbus_number_constant(L, 2, NAME_FLAG_DO_NOT_QUEUE);
 
-	set_dbus_number_constant(L, REQUEST_NAME_REPLY_PRIMARY_OWNER, 2);
-	set_dbus_number_constant(L, REQUEST_NAME_REPLY_IN_QUEUE, 2);
-	set_dbus_number_constant(L, REQUEST_NAME_REPLY_EXISTS, 2);
-	set_dbus_number_constant(L, REQUEST_NAME_REPLY_ALREADY_OWNER, 2);
+	set_dbus_number_constant(L, 2, REQUEST_NAME_REPLY_PRIMARY_OWNER);
+	set_dbus_number_constant(L, 2, REQUEST_NAME_REPLY_IN_QUEUE);
+	set_dbus_number_constant(L, 2, REQUEST_NAME_REPLY_EXISTS);
+	set_dbus_number_constant(L, 2, REQUEST_NAME_REPLY_ALREADY_OWNER);
 
-	set_dbus_number_constant(L, RELEASE_NAME_REPLY_RELEASED, 2);
-	set_dbus_number_constant(L, RELEASE_NAME_REPLY_NON_EXISTENT, 2);
-	set_dbus_number_constant(L, RELEASE_NAME_REPLY_NOT_OWNER, 2);
+	set_dbus_number_constant(L, 2, RELEASE_NAME_REPLY_RELEASED);
+	set_dbus_number_constant(L, 2, RELEASE_NAME_REPLY_NON_EXISTENT);
+	set_dbus_number_constant(L, 2, RELEASE_NAME_REPLY_NOT_OWNER);
 
-	set_dbus_number_constant(L, START_REPLY_SUCCESS, 2);
-	set_dbus_number_constant(L, START_REPLY_ALREADY_RUNNING, 2);
+	set_dbus_number_constant(L, 2, START_REPLY_SUCCESS);
+	set_dbus_number_constant(L, 2, START_REPLY_ALREADY_RUNNING);
 
 	return 1;
 }
