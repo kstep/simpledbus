@@ -273,7 +273,7 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 }
 
 /*
- * DBus:call_method()
+ * Bus:call_method()
  *
  * argument 1: bus
  * argument 2: target
@@ -458,7 +458,7 @@ static void remove_match(DBusConnection *conn,
 }
 
 /*
- * DBus:register_signal()
+ * Bus:register_signal()
  *
  * argument 1: connection
  * argument 2: object
@@ -513,7 +513,7 @@ static int bus_register_signal(lua_State *L)
 }
 
 /*
- * DBus:unregister_signal()
+ * Bus:unregister_signal()
  *
  * argument 1: connection
  * argument 2: object
@@ -649,7 +649,7 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 }
 
 /*
- * DBus:register_object_path()
+ * Bus:register_object_path()
  *
  * argument 1: connection
  * argument 2: path
@@ -718,7 +718,7 @@ static int bus_register_object_path(lua_State *L)
 }
 
 /*
- * DBus:unregister_object_path()
+ * Bus:unregister_object_path()
  *
  * argument 1: connection
  * argument 2: path
@@ -756,7 +756,7 @@ static int bus_unregister_object_path(lua_State *L)
 }
 
 /*
- * DBus:request_name()
+ * Bus:request_name()
  *
  * argument 1: connection
  * argument 2: name
@@ -1135,15 +1135,15 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	lua_pushcclosure(L, simpledbus_stop, 0);
 	lua_setfield(L, 2, "stop");
 
-	/* make the DBus metatable */
+	/* make the Bus metatable */
 	lua_newtable(L);
 
-	/* DBus.__index = DBus */
+	/* DBus.__index = Bus */
 	lua_pushvalue(L, 3);
 	lua_setfield(L, 3, "__index");
 
 	/* insert the mainloop() function*/
-	lua_pushvalue(L, 3); /* upvalue 1: DBus */
+	lua_pushvalue(L, 3); /* upvalue 1: Bus */
 	lua_pushcclosure(L, simpledbus_mainloop, 1);
 	lua_setfield(L, 2, "mainloop");
 
@@ -1156,25 +1156,25 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	lua_setmetatable(L, 4);
 
 	/* insert the SessionBus() function */
-	lua_pushvalue(L, 3); /* upvalue 1: DBus */
+	lua_pushvalue(L, 3); /* upvalue 1: Bus */
 	lua_pushvalue(L, 4); /* upvalue 2: connection table */
 	lua_pushcclosure(L, simpledbus_session_bus, 2);
 	lua_setfield(L, 2, "SessionBus");
 
 	/* insert the SystemBus() function */
-	lua_pushvalue(L, 3); /* upvalue 1: DBus */
+	lua_pushvalue(L, 3); /* upvalue 1: Bus */
 	lua_pushvalue(L, 4); /* upvalue 2: connection table */
 	lua_pushcclosure(L, simpledbus_system_bus, 2);
 	lua_setfield(L, 2, "SystemBus");
 
 	/* insert the StarterBus() function */
-	lua_pushvalue(L, 3); /* upvalue 1: DBus */
+	lua_pushvalue(L, 3); /* upvalue 1: Bus */
 	lua_pushvalue(L, 4); /* upvalue 2: connection table */
 	lua_pushcclosure(L, simpledbus_starter_bus, 2);
 	lua_setfield(L, 2, "StarterBus");
 
 	/* insert the open() function */
-	lua_pushvalue(L, 3); /* upvalue 1: DBus */
+	lua_pushvalue(L, 3); /* upvalue 1: Bus */
 	lua_pushvalue(L, 4); /* upvalue 2: connection table */
 	lua_pushcclosure(L, simpledbus_open, 2);
 	lua_setfield(L, 2, "open");
@@ -1182,9 +1182,9 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	/* pop connection table */
 	lua_settop(L, 3);
 
-	/* insert DBus methods */
+	/* insert Bus methods */
 	for (p = bus_funcs; p->name; p++) {
-		lua_pushvalue(L, 3); /* upvalue 1: DBus */
+		lua_pushvalue(L, 3); /* upvalue 1: Bus */
 		lua_pushcclosure(L, p->func, 1);
 		lua_setfield(L, 3, p->name);
 	}
@@ -1193,8 +1193,8 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	lua_pushcclosure(L, bus_gc, 0);
 	lua_setfield(L, 3, "__gc");
 
-	/* insert the DBus class and metatable */
-	lua_setfield(L, 2, "DBus");
+	/* insert the Bus class and metatable */
+	lua_setfield(L, 2, "Bus");
 
 	/* make the Proxy class and metatable */
 	lua_newtable(L);

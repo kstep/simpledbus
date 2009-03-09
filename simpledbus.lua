@@ -20,7 +20,7 @@ local M = require 'simpledbus.core'
 
 do
    local Proxy = M.Proxy
-   function M.DBus:new_proxy(target, object)
+   function M.Bus:new_proxy(target, object)
       return setmetatable({
          target = target,
          object = object,
@@ -56,7 +56,7 @@ do
    M.Introspect = Introspect
 
    local Proxy = M.Proxy
-   function M.DBus:auto_proxy(target, object)
+   function M.Bus:auto_proxy(target, object)
       local proxy = setmetatable({
          target = target,
          object = object,
@@ -78,7 +78,7 @@ do
 end
 
 do
-   local call_method = M.DBus.call_method
+   local call_method = M.Bus.call_method
    function M.Method.__call(method, proxy, ...)
       return call_method(
          proxy.bus, proxy.target, proxy.object,
@@ -88,8 +88,8 @@ do
 end
 
 do
-   local register_signal = M.DBus.register_signal
-   function M.DBus:register_auto_signal(signal, f)
+   local register_signal = M.Bus.register_signal
+   function M.Bus:register_auto_signal(signal, f)
       return register_signal(self,
          signal.object,
          signal.interface,
@@ -99,8 +99,8 @@ do
 end
 
 do
-   local unregister_signal = M.DBus.unregister_signal
-   function M.DBus:unregister_auto_signal(signal)
+   local unregister_signal = M.Bus.unregister_signal
+   function M.Bus:unregister_auto_signal(signal)
       return unregister_signal(self,
          signal.object,
          signal.interface,
