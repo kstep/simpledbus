@@ -335,7 +335,8 @@ static int bus_call_method(lua_State *L)
 			add_arguments(L, 7, lua_gettop(L), signature, msg);
 	}
 
-	if (!lua_pushthread(L)) { /* L can be yielded */
+	/* if (!lua_pushthread(L)) { / * L can be yielded */
+	if (mainThread) { /* main loop is running */
 		DBusPendingCall *pending;
 
 		if (!dbus_connection_send_with_reply(c->conn, msg, &pending, -1))
@@ -414,10 +415,12 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 	}
 
-	/* create new Lua thread and move the
-	 * Lua signal handler there */
+	/* create new Lua thread */
 	T = lua_newthread(mainThread);
+	/* push nil to let whoever sees the end of this thread
+	 * know that nothing further needs to be done */
 	lua_pushnil(T);
+	/* move the Lua signal handler there */
 	lua_insert(mainThread, -2);
 	lua_xmove(mainThread, T, 1);
 
