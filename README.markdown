@@ -6,13 +6,11 @@ About
 -----
 
 SimpleDBus is a [Lua][1] library which enables you to write simple scripts to
-interact with objects and act on signals from [DBus][2]. So far it can only do
-method calls and listen for signals, but support for exporting objects and
-sending signals is planned.
+act on signals, send signals, call methods on remote objects and export your own
+objects to [DBus][2].
 
 SimpleDBus implements a simple `poll()`-based main loop so scripts can
-listen for signals and make asynchronous method calls on several busses at
-a time.
+act asynchronously over several busses at the same time.
 
 [1]: http://www.lua.org
 [2]: http://dbus.freedesktop.org
@@ -82,9 +80,9 @@ Here is a sample script:
     -- now run the main loop and wait for signals to arrive
     assert(SimpleDBus.mainloop(bus))
 
-Use the command `dbus-send --session --type=signal /org/lua/SimpleDBus/Test org.lua.SimpleDBus.TestSignal.Signal string:stop` to stop this script in a nice way.
+Use the command `dbus-send --session --type=signal /org/lua/SimpleDBus/Test org.lua.SimpleDBus.TestSignal.Signal string:stop` or run `stop.lua` in the examples directory to stop this script in a nice way.
 
-For more examples look in the `examples` directory in the source tree.
+For more examples look in the examples directory in the source tree.
 
 
 License
