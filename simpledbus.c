@@ -610,13 +610,28 @@ static int bus_register_object_path(lua_State *L)
 	/* drop extra arguments */
 	lua_settop(L, 3);
 
-	/* move method table before path */
-	lua_insert(L, 2);
-
 	/* get the signal/thread table of the conection */
 	lua_getfenv(L, 1);
-	/* ..and move it before the method table */
+	/* ..and move it before the path */
 	lua_insert(L, 2);
+
+	/* check if we already registered this object path */
+	lua_pushvalue(L, 3);
+	lua_rawget(L, 2);
+	if (lua_isthread(L, 5)) {
+		/* just replace the method table */
+		O = lua_tothread(L, 5);
+		lua_xmove(L, O, 1);
+		lua_replace(O, 2);
+		/* return true */
+		lua_pushboolean(L, 1);
+		return 1;
+	}
+	/* clear result of lua_rawget() */
+	lua_settop(L, 4);
+
+	/* move method table before path */
+	lua_insert(L, 3);
 
 	/* create thread for storing object data
 	 * PS. yes, this is a bad hack >.< */
