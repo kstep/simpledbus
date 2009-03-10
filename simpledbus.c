@@ -438,6 +438,55 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 	return DBUS_HANDLER_RESULT_HANDLED;
 }
 
+/*
+ * Bus:send_signal()
+ *
+ * argument 1: connection
+ * argument 2: path
+ * argument 3: interface
+ * argument 4: name
+ * argument 5: signature (optional)
+ * ...
+ */
+static int bus_send_signal(lua_State *L)
+{
+	DBusConnection *conn = bus_check(L, 1)->conn;
+	const char *path = luaL_checkstring(L, 2);
+	const char *interface = luaL_checkstring(L, 3);
+	const char *name = luaL_checkstring(L, 4);
+	DBusMessage *msg;
+	dbus_bool_t r;
+
+	if (interface && *interface == '\0')
+		interface = NULL;
+
+	msg = dbus_message_new_signal(path, interface, name);
+	if (msg == NULL) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "Out of memory");
+		return 2;
+	}
+
+	if (lua_isstring(L, 5)) {
+		const char *signature = lua_tostring(L, 5);
+		if (*signature)
+			add_arguments(L, 6, lua_gettop(L), signature, msg);
+	}
+
+	r = dbus_connection_send(conn, msg, NULL);
+	dbus_message_unref(msg);
+
+	if (r == FALSE) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "Out of memory");
+		return 2;
+	}
+
+	/* return true */
+	lua_pushboolean(L, 1);
+	return 1;
+}
+
 static int send_reply(lua_State *T)
 {
 	DBusConnection *conn = lua_touserdata(T, 2);
@@ -940,6 +989,7 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	luaL_Reg bus_funcs[] = {
 		{"get_signal_table", bus_get_signal_table},
 		{"call_method", bus_call_method},
+		{"send_signal", bus_send_signal},
 		{"register_object_path", bus_register_object_path},
 		{"unregister_object_path", bus_unregister_object_path},
 		{NULL, NULL}
