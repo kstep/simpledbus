@@ -21,8 +21,6 @@
 #include <lauxlib.h>
 #include <dbus/dbus.h>
 
-#include "simpledbus.h"
-
 #define EXPORT
 #endif
 

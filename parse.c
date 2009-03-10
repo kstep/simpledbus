@@ -22,8 +22,6 @@
 #include <lua.h>
 #include <expat.h>
 
-#include "simpledbus.h"
-
 #define EXPORT
 
 #endif
@@ -209,8 +207,11 @@ EXPORT int proxy_parse(lua_State *L)
 
 	/* create parser and initialise it */
 	p = XML_ParserCreate("UTF-8");
-	if (!p)
-		return error(L, "Couldn't allocate memory for parser");
+	if (!p) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "Couldn't allocate memory for parser");
+		return 2;
+	}
 
 	data.L = L;
 	data.level = 0;
@@ -233,13 +234,16 @@ EXPORT int proxy_parse(lua_State *L)
 	lua_getfield(L, 1, "object");
 
 	/* now parse the xml document inserting methods as we go */
-	if (!XML_Parse(p, xml, strlen(xml), 1))
-		return error(L, "Error parsing introspection data");
-		/*
+	if (!XML_Parse(p, xml, strlen(xml), 1)) {
+#ifdef DEBUG
 		fprintf(stderr, "Parse error at line %d:\n%s\n",
-				(int) XML_GetCurrentLineNumber(p),
+				(int)XML_GetCurrentLineNumber(p),
 				XML_ErrorString(XML_GetErrorCode(p)));
-		*/
+#endif
+		lua_pushnil(L);
+		lua_pushliteral(L, "Error parsing introspection data");
+		return 2;
+	}
 
 	/* pop the object name */
 	lua_pop(L, 1);

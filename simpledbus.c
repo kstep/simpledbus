@@ -45,18 +45,6 @@ static DBusObjectPathVTable vtable;
 static lua_State *mainThread = NULL;
 static unsigned int stop;
 
-EXPORT int error(lua_State *L, const char *fmt, ...)
-{
-	va_list ap;
-
-	lua_pushnil(L);
-	va_start(ap, fmt);
-	lua_pushvfstring(L, fmt, ap);
-	va_end(ap);
-
-	return 2;
-}
-
 #ifdef ALLINONE
 #include "add.c"
 #include "push.c"
@@ -238,9 +226,11 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 	c = lua_touserdata(T, -1);
 	lua_pop(T, 1);
 
-	if (msg == NULL)
-		nargs =	error(T, "Reply null");
-	else {
+	if (msg == NULL) {
+		lua_pushnil(T);
+		lua_pushliteral(T, "Reply null");
+		nargs = 2;
+	} else {
 		switch (dbus_message_get_type(msg)) {
 		case DBUS_MESSAGE_TYPE_METHOD_RETURN:
 			nargs = push_arguments(T, msg);
@@ -255,7 +245,9 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 			break;
 		default:
 			dbus_message_unref(msg);
-			nargs = error(T, "Unknown reply");
+			lua_pushnil(T);
+			lua_pushliteral(T, "Uknown reply");
+			nargs = 2;
 		}
 	}
 
@@ -325,8 +317,11 @@ static int bus_call_method(lua_State *L)
 				lua_tostring(L, 3),
 				interface,
 				lua_tostring(L, 5));
-	if (msg == NULL)
-		return error(L, "Couldn't create message");
+	if (msg == NULL) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "Out of memory");
+		return 2;
+	}
 
 	/* get the signature and add arguments */
 	if (lua_isstring(L, 6)) {
@@ -339,13 +334,19 @@ static int bus_call_method(lua_State *L)
 	if (mainThread) { /* main loop is running */
 		DBusPendingCall *pending;
 
-		if (!dbus_connection_send_with_reply(c->conn, msg, &pending, -1))
-			return error(L, "Out of memory");
+		if (!dbus_connection_send_with_reply(c->conn, msg, &pending, -1)) {
+			lua_pushnil(L);
+			lua_pushliteral(L, "Out of memory");
+			return 2;
+		}
 
 		if (!dbus_pending_call_set_notify(pending,
 					(DBusPendingCallNotifyFunction)
-					method_return_handler, L, NULL))
-			return error(L, "Out of memory");
+					method_return_handler, L, NULL)) {
+			lua_pushnil(L);
+			lua_pushliteral(L, "Out of memory");
+			return 2;
+		}
 
 		/* yield the connection */
 		lua_settop(L, 1);
@@ -366,8 +367,11 @@ static int bus_call_method(lua_State *L)
 		dbus_error_free(&err);
 		return 2;
 	}
-	if (ret == NULL)
-		return error(L, "Reply null");
+	if (ret == NULL) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "Reply null");
+		return 2;
+	}
 
 	switch (dbus_message_get_type(ret)) {
 	case DBUS_MESSAGE_TYPE_METHOD_RETURN:
@@ -384,7 +388,9 @@ static int bus_call_method(lua_State *L)
 
 	dbus_message_unref(ret);
 
-	return error(L, "Unknown reply");
+	lua_pushnil(L);
+	lua_pushliteral(L, "Unknown reply");
+	return 2;
 }
 
 /* this magic string representation of an incoming
@@ -800,12 +806,18 @@ static int simpledbus_mainloop(lua_State *L)
 
 	/* make sure the stack can hold all the "fenv"'s of
 	 * the connections (and a bit more) */
-	if (!lua_checkstack(L, n+3))
-		return error(L, "Out of memory");
+	if (!lua_checkstack(L, n+3)) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "Out of memory");
+		return 2;
+	}
 
 	c = malloc(n * sizeof(LCon *));
-	if (c == NULL)
-		return error(L, "Out of memory");
+	if (c == NULL) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "Out of memory");
+		return 2;
+	}
 
 	for (i = 0; i < n; i++) {
 		c[i] = bus_check(L, i+1);
@@ -816,7 +828,9 @@ static int simpledbus_mainloop(lua_State *L)
 	fds = make_poll_struct(n, c, &nfds);
 	if (fds == NULL) {
 		free(c);
-		return error(L, "Out of memory");
+		lua_pushnil(L);
+		lua_pushliteral(L, "Out of memory");
+		return 2;
 	}
 
 	stop = 0;
@@ -834,7 +848,9 @@ static int simpledbus_mainloop(lua_State *L)
 			if (fds == NULL) {
 				free(c);
 				mainThread = NULL;
-				return error(L, "Out of memory");
+				lua_pushnil(L);
+				lua_pushliteral(L, "Out of memory");
+				return 2;
 			}
 		}
 #ifdef DEBUG
@@ -844,15 +860,10 @@ static int simpledbus_mainloop(lua_State *L)
 			free(c);
 			free(fds);
 			mainThread = NULL;
-#if 1
 			lua_pushnil(L);
 			lua_pushfstring(L, "Error polling DBus: %s",
 					strerror(errno));
 			return 2;
-#else
-			return error(L, "Error polling DBus: %s",
-					strerror(errno));
-#endif
 		}
 #ifdef DEBUG
 		printf(")"); fflush(stdout);
@@ -891,8 +902,11 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 		return 2;
 	}
 
-	if (conn == NULL)
-		return error(L, "Couldn't create connection");
+	if (conn == NULL) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "Couldn't create connection");
+		return 2;
+	}
 
 	lua_pushlightuserdata(L, conn);
 	lua_rawget(L, lua_upvalueindex(2)); /* connection table */
@@ -904,8 +918,11 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 
 	/* create new userdata for the bus */
 	c = lua_newuserdata(L, sizeof(LCon));
-	if (c == NULL)
-		return error(L, "Out of memory");
+	if (c == NULL) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "Out of memory");
+		return 2;
+	}
 	c->conn = conn;
 	c->nactive = 0;
 	c->active = NULL;
@@ -917,7 +934,9 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 				(DBusWatchToggledFunction)toggle_watch_cb,
 				c, NULL)) {
 		dbus_connection_unref(conn);
-		return error(L, "Error setting watch functions");
+		lua_pushnil(L);
+		lua_pushliteral(L, "Error setting watch functions");
+		return 2;
 	}
 
 	/* set the signal handler */
@@ -925,7 +944,9 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 				(DBusHandleMessageFunction)signal_handler,
 				c, NULL)) {
 		dbus_connection_unref(conn);
-		return error(L, "Error adding filter");
+		lua_pushnil(L);
+		lua_pushliteral(L, "Error adding filter");
+		return 2;
 	}
 
 	/* set the metatable */
