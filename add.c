@@ -179,9 +179,6 @@ EXPORT void add_arguments(lua_State *L, int i, int argc, const char *signature,
 	DBusMessageIter args;
 	DBusSignatureIter type;
 
-	if (*signature == '\0')
-		return;
-
 	dbus_message_iter_init_append(msg, &args);
 	
 	dbus_signature_iter_init(&type, signature);

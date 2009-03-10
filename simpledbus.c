@@ -295,7 +295,7 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
  * argument 3: object
  * argument 4: interface
  * argument 5: method
- * argument 6: signature
+ * argument 6: signature (optional)
  * ...
  */
 static int bus_call_method(lua_State *L)
@@ -329,8 +329,11 @@ static int bus_call_method(lua_State *L)
 		return error(L, "Couldn't create message");
 
 	/* get the signature and add arguments */
-	if (lua_isstring(L, 6))
-		add_arguments(L, 7, lua_gettop(L), lua_tostring(L, 6), msg);
+	if (lua_isstring(L, 6)) {
+		const char *signature = lua_tostring(L, 6);
+		if (*signature)
+			add_arguments(L, 7, lua_gettop(L), signature, msg);
+	}
 
 	if (!lua_pushthread(L)) { /* L can be yielded */
 		DBusPendingCall *pending;
