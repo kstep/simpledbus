@@ -162,7 +162,6 @@ static void remove_watch_cb(DBusWatch *watch, LCon *c)
 	dump_watch(watch);
 	fflush(stdout);
 #endif
-
 	if (dbus_watch_get_enabled(watch) == FALSE)
 		return;
 
@@ -233,6 +232,7 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 		switch (dbus_message_get_type(msg)) {
 		case DBUS_MESSAGE_TYPE_METHOD_RETURN:
 			nargs = push_arguments(T, msg);
+			dbus_message_unref(msg);
 			break;
 		case DBUS_MESSAGE_TYPE_ERROR:
 			lua_pushnil(T);
@@ -360,22 +360,25 @@ static int bus_call_method(lua_State *L)
 	dbus_message_unref(msg);
 
 	/* check reply */
-	if (dbus_error_is_set(&err)) {
-		lua_pushnil(L);
-		lua_pushstring(L, err.message);
-		dbus_error_free(&err);
-		return 2;
-	}
 	if (ret == NULL) {
 		lua_pushnil(L);
-		lua_pushliteral(L, "Reply null");
+		if (dbus_error_is_set(&err)) {
+			lua_pushstring(L, err.message);
+			dbus_error_free(&err);
+		} else
+			lua_pushliteral(L, "Reply null");
 		return 2;
 	}
 
 	switch (dbus_message_get_type(ret)) {
 	case DBUS_MESSAGE_TYPE_METHOD_RETURN:
-		/* read the parameters */
-		return push_arguments(L, ret);
+		{
+			/* read the parameters */
+			int nargs = push_arguments(L, ret);
+			dbus_message_unref(ret);
+
+			return nargs;
+		}
 	case DBUS_MESSAGE_TYPE_ERROR:
 		lua_pushnil(L);
 		dbus_set_error_from_message(&err, ret);
@@ -429,7 +432,6 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 	lua_insert(mainThread, -2);
 	lua_xmove(mainThread, T, 1);
 
-	dbus_message_ref(msg);
 	switch (lua_resume(T, push_arguments(T, msg))) {
 	case 0: /* thread finished */
 		/* just forget about it */
@@ -567,7 +569,6 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 	/* forget about the function table */
 	lua_settop(O, 3);
 
-	dbus_message_ref(msg);
 	switch (lua_resume(T, push_arguments(T, msg))) {
 	case 0: /* thread finished */
 		if (send_reply(T)) {

@@ -244,8 +244,5 @@ EXPORT int push_arguments(lua_State *L, DBusMessage *msg)
 		(get_pushfunc(&args))(L, &args);
 	} while (dbus_message_iter_next(&args));
 
-	/* free reply */
-	dbus_message_unref(msg);
-
 	return argc;
 }
