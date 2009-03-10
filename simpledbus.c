@@ -32,24 +32,23 @@
 #include <expat.h>
 
 #define EXPORT static
-#else
+
+#include "add.c"
+#include "push.c"
+#include "parse.c"
+
+#else /* ALLINONE */
+
 #include "add.h"
 #include "push.h"
 #include "parse.h"
 
-#define EXPORT
-#endif
+#endif /* ALLINONE */
 
 static DBusError err;
 static DBusObjectPathVTable vtable;
 static lua_State *mainThread = NULL;
 static unsigned int stop;
-
-#ifdef ALLINONE
-#include "add.c"
-#include "push.c"
-#include "parse.c"
-#endif
 
 #ifdef DEBUG
 static void dump_watch(DBusWatch *watch)
@@ -517,9 +516,9 @@ static int send_reply(lua_State *T)
 }
 
 static DBusHandlerResult method_call_handler(DBusConnection *conn,
-		DBusMessage *msg, lua_State *T)
+		DBusMessage *msg, lua_State *O)
 {
-	lua_State *N;
+	lua_State *T;
 	DBusMessage *ret;
 
 #ifdef DEBUG
@@ -531,13 +530,13 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 	fflush(stdout);
 #endif
 
-	lua_pushfstring(T, "%s.%s",
+	lua_pushfstring(O, "%s.%s",
 			dbus_message_get_interface(msg),
 			dbus_message_get_member(msg));
 
-	lua_rawget(T, 2);
-	if (!lua_istable(T, 3)) {
-		lua_settop(T, 2);
+	lua_rawget(O, 2);
+	if (!lua_istable(O, 3)) {
+		lua_settop(O, 2);
 #ifdef DEBUG
 		printf("..not handled\n"); fflush(stdout);
 #endif
@@ -545,48 +544,48 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 	}
 
 	/* create a new thread to run the method in */
-	N = lua_newthread(T);
+	T = lua_newthread(O);
 	/* ..and insert it before the function table */
-	lua_insert(T, 3);
+	lua_insert(O, 3);
 
 	/* push the send_reply function */
-	lua_pushcclosure(N, send_reply, 0);
+	lua_pushcclosure(T, send_reply, 0);
 
 	/* push the connection */
-	lua_pushlightuserdata(N, conn);
+	lua_pushlightuserdata(T, conn);
 
 	/* create new message return */
 	ret = dbus_message_new_method_return(msg);
-	/* ..and push it to N */
-	lua_pushlightuserdata(N, ret);
+	/* ..and push it to T */
+	lua_pushlightuserdata(T, ret);
 
-	/* move the return signature and the function to N */
-	lua_rawgeti(T, 4, 2);
-	lua_rawgeti(T, 4, 3);
-	lua_xmove(T, N, 2);
+	/* move the return signature and the function to T */
+	lua_rawgeti(O, 4, 2);
+	lua_rawgeti(O, 4, 3);
+	lua_xmove(O, T, 2);
 
 	/* forget about the function table */
-	lua_settop(T, 3);
+	lua_settop(O, 3);
 
 	dbus_message_ref(msg);
-	switch (lua_resume(N, push_arguments(N, msg))) {
+	switch (lua_resume(T, push_arguments(T, msg))) {
 	case 0: /* thread finished */
-		if (send_reply(N)) {
+		if (send_reply(T)) {
 			/* move error message to main thread and error */
-			lua_xmove(N, mainThread, 1);
+			lua_xmove(T, mainThread, 1);
 			lua_error(mainThread);
 		}
 		/* forget about the thread */
-		lua_settop(T, 2);
+		lua_settop(O, 2);
 		break;
 	case LUA_YIELD:	/* thread yielded */
 		/* save it in the running threads table */
-		lua_pushboolean(T, 1);
-		lua_rawset(T, 1); /* thread table */
+		lua_pushboolean(O, 1);
+		lua_rawset(O, 1); /* thread table */
 		break;
 	default:
 		/* move error message to main thread and error */
-		lua_xmove(N, mainThread, 1);
+		lua_xmove(T, mainThread, 1);
 		lua_error(mainThread);
 	}
 
@@ -604,7 +603,7 @@ static int bus_register_object_path(lua_State *L)
 {
 	LCon *c = bus_check(L, 1);
 	const char *path = luaL_checkstring(L, 2);
-	lua_State *T;
+	lua_State *O;
 
 	luaL_checktype(L, 3, LUA_TTABLE);
 
@@ -621,29 +620,29 @@ static int bus_register_object_path(lua_State *L)
 
 	/* create thread for storing object data
 	 * PS. yes, this is a bad hack >.< */
-	T = lua_newthread(L);
-	if (T == NULL) {
+	O = lua_newthread(L);
+	if (O == NULL) {
 		lua_pushnil(L);
 		lua_pushliteral(L, "Out of memory");
 		return 2;
 	}
 
-	/*  register the object path */
-	if (!dbus_connection_register_object_path(c->conn, path, &vtable, T)) {
+	/* register the object path */
+	if (!dbus_connection_register_object_path(c->conn, path, &vtable, O)) {
 		lua_pushnil(L);
-		lua_pushliteral(L, "Error registering object path");
+		lua_pushliteral(L, "Out of memory");
 		return 2;
 	}
 
 	/* push the thread table to the thread */
 	lua_pushvalue(L, 2);
-	lua_xmove(L, T, 1);
+	lua_xmove(L, O, 1);
 
 	/* save the thread in the thread table */
 	lua_rawset(L, 2);
 
 	/* move method table to the thread*/
-	lua_xmove(L, T, 1);
+	lua_xmove(L, O, 1);
 
 	/* return true */
 	lua_pushboolean(L, 1);
