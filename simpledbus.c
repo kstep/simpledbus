@@ -212,6 +212,20 @@ static LCon *bus_check(lua_State *L, int index)
 	return (LCon *)lua_touserdata(L, index);
 }
 
+/*
+ * Bus:get_signal_table()
+ *
+ * argument 1: bus
+ */
+static int bus_get_signal_table(lua_State *L)
+{
+	(void)bus_check(L, 1);
+
+	lua_getfenv(L, 1);
+
+	return 1;
+}
+
 static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 {
 	DBusMessage *msg = dbus_pending_call_steal_reply(pending);
@@ -369,6 +383,8 @@ static int bus_call_method(lua_State *L)
 	return error(L, "Unknown reply");
 }
 
+/* this magic string representation of an incoming
+ * signal must match the one in the Lua code */
 #define push_signal_string(L, object, interface, signal) \
 	lua_pushfstring(L, "%s\n%s\n%s", object, interface, signal)
 
@@ -420,139 +436,6 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 	}
 
 	return DBUS_HANDLER_RESULT_HANDLED;
-}
-
-static void add_match(DBusConnection *conn,
-		const char *object,
-		const char *interface,
-		const char *signal)
-{
-	char *rule = alloca(45 + strlen(object)
-			+ strlen(interface) + strlen(signal));
-
-	/* construct rule to catch the signal messages */
-	sprintf(rule, "type='signal',path='%s',interface='%s',member='%s'",
-			object, interface, signal);
-#ifdef DEBUG
-	printf("added rule=\"%s\"\n", rule); fflush(stdout);
-#endif
-	/* add the rule */
-	dbus_bus_add_match(conn, rule, &err);
-}
-
-static void remove_match(DBusConnection *conn,
-		const char *object,
-		const char *interface,
-		const char *signal)
-{
-	char *rule = alloca(45 + strlen(object)
-			+ strlen(interface) + strlen(signal));
-
-	/* construct rule to catch the signal messages */
-	sprintf(rule, "type='signal',path='%s',interface='%s',member='%s'",
-			object, interface, signal);
-#ifdef DEBUG
-	printf("removed rule=\"%s\"\n", rule); fflush(stdout);
-#endif
-	/* add the rule */
-	dbus_bus_remove_match(conn, rule, &err);
-}
-
-/*
- * Bus:register_signal()
- *
- * argument 1: connection
- * argument 2: object
- * argument 3: interface
- * argument 4: signal
- * argument 5: function
- */
-static int bus_register_signal(lua_State *L)
-{
-	DBusConnection *conn = bus_check(L, 1)->conn;
-	const char *object = luaL_checkstring(L, 2);
-	const char *interface = luaL_checkstring(L, 3);
-	const char *signal = luaL_checkstring(L, 4);
-
-	luaL_checktype(L, 5, LUA_TFUNCTION);
-
-	/* drop extra arguments */
-	lua_settop(L, 5);
-
-	/* get the signal handler table */
-	lua_getfenv(L, 1);
-	/* ..and insert it before the function */
-	lua_insert(L, 5);
-
-	/* push the signal string */
-	push_signal_string(L, object, interface, signal);
-	/* ..and insert it before the function */
-	lua_insert(L, 6);
-
-	/* check if signal is already set */
-	lua_pushvalue(L, 6);
-	lua_rawget(L, 5);
-	if (lua_isnil(L, 8)) {
-		/* if we didn't already set this signal
-		   add the rule and check for errors */
-		add_match(conn, object, interface, signal);
-		if (dbus_error_is_set(&err)) {
-			lua_pushnil(L);
-			lua_pushstring(L, err.message);
-			dbus_error_free(&err);
-			return 2;
-		}
-	}
-	lua_settop(L, 7);
-
-	/* add the function to the signal handler table */
-	lua_rawset(L, 5);
-
-	/* return true */
-	lua_pushboolean(L, 1);
-	return 1;
-}
-
-/*
- * Bus:unregister_signal()
- *
- * argument 1: connection
- * argument 2: object
- * argument 3: interface
- * argument 4: signal
- */
-static int bus_unregister_signal(lua_State *L)
-{
-	DBusConnection *conn = bus_check(L, 1)->conn;
-	const char *object = luaL_checkstring(L, 2);
-	const char *interface = luaL_checkstring(L, 3);
-	const char *signal = luaL_checkstring(L, 4);
-
-	/* drop extra arguments */
-	lua_settop(L, 4);
-
-	/* get the signal handler table */
-	lua_getfenv(L, 1);
-
-	/* push the signal string */
-	push_signal_string(L, object, interface, signal);
-
-	/* check if signal is set at all*/
-	lua_pushvalue(L, 6);
-	lua_rawget(L, 5);
-	if (lua_isnil(L, 7))
-		return luaL_error(L, "Signal not set");
-	lua_settop(L, 6);
-
-	remove_match(conn, object, interface, signal);
-
-	/* set sh_table[sh_string] = nil */
-	lua_pushnil(L);
-	lua_rawset(L, 5);
-
-	/* return true */
-	lua_pushboolean(L, 1);
-	return 1;
 }
 
 static int send_reply(lua_State *T)
@@ -1055,9 +938,8 @@ static int simpledbus_open(lua_State *L)
 LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 {
 	luaL_Reg bus_funcs[] = {
+		{"get_signal_table", bus_get_signal_table},
 		{"call_method", bus_call_method},
-		{"register_signal", bus_register_signal},
-		{"unregister_signal", bus_unregister_signal},
 		{"register_object_path", bus_register_object_path},
 		{"unregister_object_path", bus_unregister_object_path},
 		{NULL, NULL}

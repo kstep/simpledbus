@@ -88,27 +88,6 @@ do
 end
 
 do
-   local register_signal = M.Bus.register_signal
-   function M.Bus:register_auto_signal(signal, f)
-      return register_signal(self,
-         signal.object,
-         signal.interface,
-         signal.name,
-         f)
-   end
-end
-
-do
-   local unregister_signal = M.Bus.unregister_signal
-   function M.Bus:unregister_auto_signal(signal)
-      return unregister_signal(self,
-         signal.object,
-         signal.interface,
-         signal.name)
-   end
-end
-
-do
    local call_method = M.Bus.call_method
    local target, object, interface =
       M.SERVICE_DBUS, M.PATH_DBUS, M.INTERFACE_DBUS
@@ -121,6 +100,107 @@ do
    function M.Bus:release_name(name)
       return call_method(self, target, object, interface,
             'ReleaseName', 's', name)
+   end
+
+   function M.Bus:add_match(rule)
+      return call_method(self, target, object, interface,
+            'AddMatch', 's', rule)
+   end
+
+   function M.Bus:remove_match(rule)
+      return call_method(self, target, object, interface,
+            'RemoveMatch', 's', rule)
+   end
+
+end
+
+do
+   local assert, getmetatable, type = assert, getmetatable, type
+   local format = string.format
+   local Bus = M.Bus
+   local add_match = M.Bus.add_match
+
+   local function register_signal(bus, object, interface, name, f)
+      assert(getmetatable(bus) == Bus,
+         'bad argument #1 (expected a DBus connection)')
+      assert(type(object) == 'string',
+         'bad argument #2 (string expected, got '..type(object))
+      assert(type(interface) == 'string',
+         'bad argument #3 (string expected, got '..type(interface))
+      assert(type(name) == 'string',
+         'bad argument #4 (string expected, got '..type(name))
+      assert(type(f) == 'function',
+         'bad argument #5 (function expected, got '..type(f))
+
+      local t = bus:get_signal_table()
+
+      -- this magic string representation of an inconming
+      -- signal must match the one in the C code
+      local s = format('%s\n%s\n%s', object, interface, name)
+
+      if t[s] == nil then
+         local r, msg = add_match(bus,
+               format("type='signal',path='%s',interface='%s',member='%s'",
+                     object, interface, name))
+         if msg then return nil, msg end
+      end
+
+      t[s] = f
+
+      return true
+   end
+   Bus.register_signal = register_signal
+
+   function M.Bus:register_auto_signal(signal, f)
+      return register_signal(self,
+         signal.object,
+         signal.interface,
+         signal.name,
+         f)
+   end
+end
+
+do
+   local assert, getmetatable, type = assert, getmetatable, type
+   local format = string.format
+   local Bus = M.Bus
+   local remove_match = M.Bus.remove_match
+
+   local function unregister_signal(bus, object, interface, name)
+      assert(getmetatable(bus) == Bus,
+         'bad argument #1 (expected a DBus connection)')
+      assert(type(object) == 'string',
+         'bad argument #2 (string expected, got '..type(object))
+      assert(type(interface) == 'string',
+         'bad argument #3 (string expected, got '..type(interface))
+      assert(type(name) == 'string',
+         'bad argument #4 (string expected, got '..type(name))
+
+      local t = bus:get_signal_table()
+
+      -- this magic string representation of an inconming
+      -- signal must match the one in the C code
+      local s = format('%s\n%s\n%s', object, interface, name)
+
+      assert(t[s] ~= nil, 'signal not set')
+
+      local r, msg = remove_match(bus,
+            format("type='signal',path='%s',interface='%s',member='%s'",
+                  object, interface, name))
+
+      if msg then return nil, msg end
+
+      t[s] = nil
+
+      return true
+   end
+   Bus.unregister_signal = unregister_signal
+
+   function M.Bus:unregister_auto_signal(signal)
+      return unregister_signal(self,
+         signal.object,
+         signal.interface,
+         signal.name)
    end
 end
 
