@@ -20,22 +20,27 @@
 #define LUA_LIB
 #include <string.h>
 #include <lua.h>
+#include <lauxlib.h>
 #include <expat.h>
 
 #define EXPORT
-
 #endif
 
-#define TAG_METHOD 1
-#define TAG_SIGNAL 2
-
+/*
+ * Maximum length of a signature string, see
+ * http://dbus.freedesktop.org/doc/dbus-specification.html
+ */
 #define SIG_MAXLENGTH 256
 
 struct parsedata {
 	lua_State *L;
 	unsigned int level;
 	unsigned int interface;
-	unsigned int type;
+	enum {
+		TAG_NONE   = 0,
+		TAG_METHOD = 1,
+		TAG_SIGNAL = 2
+	} type;
 	char signature[SIG_MAXLENGTH];
 	char *sig_next;
 	char result[SIG_MAXLENGTH];
@@ -90,25 +95,26 @@ static void start_element_handler(struct parsedata *data,
 		lua_pushstring(data->L, *atts);
 
 		/* check if the field is already set */
-		lua_pushvalue(data->L, -1);
+		lua_pushvalue(data->L, 5);
 		lua_gettable(data->L, 1);
-		if (lua_type(data->L, -1) != LUA_TNIL) {
-			lua_pop(data->L, 2);
-			data->type = 0;
+		if (!lua_isnil(data->L, 6)) {
+			/* if it is, don't add this method/signal */
+			lua_settop(data->L, 4);
+			data->type = TAG_NONE;
 			return;
 		}
-		lua_pop(data->L, 1);
+		lua_settop(data->L, 5);
 
-		/* create a new table */
-		lua_newtable(data->L);
+		/* create a new method/signal table */
+		lua_createtable(data->L, 0, 4);
 
 		/* ..and set the metatable */
 		lua_pushvalue(data->L, lua_upvalueindex(data->type));
-		lua_setmetatable(data->L, -2);
+		lua_setmetatable(data->L, 6);
 
 		break;
 	case 4:
-		if (!data->type || strcmp(name, "arg"))
+		if (data->type == TAG_NONE || strcmp(name, "arg"))
 			return;
 
 		{
@@ -153,45 +159,46 @@ static void end_element_handler(struct parsedata *data,
 		if (!data->interface || strcmp(name, "interface"))
 			return;
 
-		lua_pop(data->L, 1);
+		lua_settop(data->L, 3);
 
 		data->interface = 0;
 		break;
 	case 2:
-		if (!data->type)
+		if (data->type == TAG_NONE)
 			return;
 
 		*data->sig_next = *data->res_next = '\0';
 
-		lua_pushvalue(data->L, -2); /* method/signal name */
-		lua_setfield(data->L, -2, "name");
-		lua_pushvalue(data->L, -3); /* interface */
-		lua_setfield(data->L, -2, "interface");
+		lua_pushvalue(data->L, 5); /* method/signal name */
+		lua_setfield(data->L, 6, "name");
+		lua_pushvalue(data->L, 4); /* interface */
+		lua_setfield(data->L, 6, "interface");
 		lua_pushlstring(data->L, data->signature,
 				data->sig_next - data->signature);
-		lua_setfield(data->L, -2, "signature");
+		lua_setfield(data->L, 6, "signature");
 
 		switch (data->type) {
 		case TAG_METHOD:
 			lua_pushlstring(data->L, data->result,
 					data->res_next - data->result);
-			lua_setfield(data->L, -2, "result");
+			lua_setfield(data->L, 6, "result");
 			break;
-		case TAG_SIGNAL:
-			lua_pushvalue(data->L, -4); /* object name */
-			lua_setfield(data->L, -2, "object");
+		/* case TAG_SIGNAL:, but make gcc -Wall happy */
+		default:
+			lua_pushvalue(data->L, 3); /* object name */
+			lua_setfield(data->L, 6, "object");
 			break;
 		}
 
-		lua_rawset(data->L, 1);
+		lua_settable(data->L, 1);
 		data->res_next = data->result;
 		data->sig_next = data->signature;
-		data->type = 0;
+		data->type = TAG_NONE;
 	}
 }
 
 /*
- * Proxy.parse()
+ * Proxy:parse()
  *
  * upvalue 1: Method
  * upvalue 2: Signal
@@ -205,11 +212,22 @@ EXPORT int proxy_parse(lua_State *L)
 	struct parsedata data;
 	const char *xml;
 
+	/* drop extra arguments */
+	lua_settop(L, 2);
+
+	/* get the xml string */
+	xml = luaL_checkstring(L, 2);
+
+	/* put the object name on the stack */
+	lua_getfield(L, 1, "object");
+	if (lua_isnil(L, 3))
+		return luaL_argerror(L, 2, "no object set in the proxy");
+
 	/* create parser and initialise it */
 	p = XML_ParserCreate("UTF-8");
 	if (!p) {
 		lua_pushnil(L);
-		lua_pushliteral(L, "Couldn't allocate memory for parser");
+		lua_pushliteral(L, "Out of memory");
 		return 2;
 	}
 
@@ -227,12 +245,6 @@ EXPORT int proxy_parse(lua_State *L)
 			(XML_StartElementHandler)start_element_handler,
 			(XML_EndElementHandler)end_element_handler);
 
-	/* get the xml string */
-	xml = lua_tostring(L, 2);
-
-	/* put the object name on the stack */
-	lua_getfield(L, 1, "object");
-
 	/* now parse the xml document inserting methods as we go */
 	if (!XML_Parse(p, xml, strlen(xml), 1)) {
 #ifdef DEBUG
@@ -245,14 +257,10 @@ EXPORT int proxy_parse(lua_State *L)
 		return 2;
 	}
 
-	/* pop the object name */
-	lua_pop(L, 1);
-
 	/* free the parser */
 	XML_ParserFree(p);
 
 	/* return true */
 	lua_pushboolean(L, 1);
-
 	return 1;
 }
