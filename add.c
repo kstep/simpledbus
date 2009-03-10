@@ -17,6 +17,7 @@
  */
 
 #ifndef ALLINONE
+#define LUA_LIB
 #include <lua.h>
 #include <lauxlib.h>
 #include <dbus/dbus.h>
@@ -178,7 +179,6 @@ EXPORT void add_arguments(lua_State *L, int i, int argc, const char *signature,
 	DBusSignatureIter type;
 
 	dbus_message_iter_init_append(msg, &args);
-	
 	dbus_signature_iter_init(&type, signature);
 
 	do {
@@ -188,6 +188,5 @@ EXPORT void add_arguments(lua_State *L, int i, int argc, const char *signature,
 		(get_addfunc(&type))(L, i, &type, &args);
 
 		i++;
-
 	} while (dbus_signature_iter_next(&type));
 }

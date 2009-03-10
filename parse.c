@@ -17,7 +17,7 @@
  */
 
 #ifndef ALLINONE
-
+#define LUA_LIB
 #include <string.h>
 #include <lua.h>
 #include <expat.h>
