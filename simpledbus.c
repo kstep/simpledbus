@@ -351,7 +351,7 @@ static int bus_call_method(lua_State *L)
 		lua_settop(L, 1);
 		return lua_yield(L, 1);
 	}
-	lua_pop(L, 1);
+	/* lua_pop(L, 1); */
 
 	/* L is the main thread, so we call the method synchronously */
 	ret = dbus_connection_send_with_reply_and_block(c->conn, msg, -1, &err);
