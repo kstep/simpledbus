@@ -107,6 +107,16 @@ static void add_string(lua_State *L, int index,
 	dbus_message_iter_append_basic(args, DBUS_TYPE_STRING, &s);
 }
 
+static void add_object_path(lua_State *L, int index,
+		DBusSignatureIter *type, DBusMessageIter *args)
+{
+	const char *s;
+	if (!lua_isstring(L, index))
+		(void)luaL_error(L, "Expected string");
+	s = lua_tostring(L, index);
+	dbus_message_iter_append_basic(args, DBUS_TYPE_OBJECT_PATH, &s);
+}
+
 static void add_array(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
@@ -165,6 +175,8 @@ static addfunc get_addfunc(DBusSignatureIter *type)
 		return add_uint32;
 	case DBUS_TYPE_STRING:
 		return add_string;
+	case DBUS_TYPE_OBJECT_PATH:
+		return add_object_path;
 	case DBUS_TYPE_ARRAY:
 		return add_array;
 	}
