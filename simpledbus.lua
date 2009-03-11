@@ -29,6 +29,19 @@ do
    end
 end
 
+function M.new_error(name)
+   if name == nil or name == '' then
+      name = 'org.freedesktop.DBus.Error.Failed'
+   end
+   return function(message)
+      if message then
+         return nil, name, message
+      else
+         return nil, name
+      end
+   end
+end
+
 do
    local Method = M.Method
    function M.new_method(name, interface, signature, result)

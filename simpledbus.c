@@ -503,16 +503,51 @@ static int bus_send_signal(lua_State *L)
 static int send_reply(lua_State *T)
 {
 	DBusConnection *conn = lua_touserdata(T, 2);
-	DBusMessage *ret = lua_touserdata(T, 3);
-	const char *signature = lua_tostring(T, 4);
+	DBusMessage *msg = lua_touserdata(T, 3);
+	DBusMessage *reply;
+	int top = lua_gettop(T);
 
-	if (signature && *signature != '\0')
-		add_arguments(T, 5, lua_gettop(T), signature, ret);
+	/* check if the method returned an error */
+	if (top >= 6 && lua_isnil(T, 5)) {
+		const char *name = lua_tostring(T, 6);
+		const char *message = (top >= 7) ? lua_tostring(T, 7) : NULL;
 
-	if (!dbus_connection_send(conn, ret, NULL))
-		luaL_error(mainThread, "Out of memory");
+		if (name == NULL) {
+			dbus_message_unref(msg);
+			lua_pushliteral(T, "Return #1 nil, "
+					"expected error name as #2");
+			return 1;
+		}
+		if (message && *message == '\0')
+			message = NULL;
 
-	dbus_message_unref(ret);
+		reply = dbus_message_new_error(msg, name, message);
+		dbus_message_unref(msg);
+		if (reply == NULL) {
+			lua_pushliteral(T, "Out of memory");
+			return 1;
+		}
+	} else {
+		const char *signature;
+
+		reply = dbus_message_new_method_return(msg);
+		dbus_message_unref(msg);
+		if (reply == NULL) {
+			lua_pushliteral(T, "Out of memory");
+			return 1;
+		}
+
+		signature = lua_tostring(T, 4);
+		if (signature && *signature != '\0')
+			add_arguments(T, 5, top, signature, reply);
+	}
+
+	if (!dbus_connection_send(conn, reply, NULL)) {
+		lua_pushliteral(T, "Out of memory");
+		return 1;
+	}
+
+	dbus_message_unref(reply);
 
 	return 0;
 }
@@ -521,7 +556,6 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 		DBusMessage *msg, lua_State *O)
 {
 	lua_State *T;
-	DBusMessage *ret;
 
 #ifdef DEBUG
 	printf("Received message: path = %s,"
@@ -556,10 +590,9 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 	/* push the connection */
 	lua_pushlightuserdata(T, conn);
 
-	/* create new message return */
-	ret = dbus_message_new_method_return(msg);
-	/* ..and push it to T */
-	lua_pushlightuserdata(T, ret);
+	/* push the message */
+	dbus_message_ref(msg);
+	lua_pushlightuserdata(T, msg);
 
 	/* move the return signature and the function to T */
 	lua_rawgeti(O, 4, 2);
@@ -1112,10 +1145,10 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	lua_pushcclosure(L, bus_gc, 0);
 	lua_setfield(L, 3, "__gc");
 
-	/* insert the Bus class and metatable */
+	/* insert the Bus metatable */
 	lua_setfield(L, 2, "Bus");
 
-	/* make the Proxy class and metatable */
+	/* make the Proxy metatable */
 	lua_newtable(L);
 
 	/* Proxy.__index = Proxy */

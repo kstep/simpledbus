@@ -59,6 +59,14 @@ methods['org.lua.SimpleDBus.Test.Test'] = {'v', 's', function(...)
    return s
 end}
 
+do
+   local e = DBus.new_error()
+   methods['org.lua.SimpleDBus.Test.Error'] = {'', 'ss', function()
+      print 'Error() method called'
+      return e('Hello World!')
+   end}
+end
+
 methods['org.lua.SimpleDBus.Test.Unregister'] = {'', 's', function()
    local r, msg = bus:unregister_object_path('/org/lua/SimpleDBus/Test')
    if r then
@@ -86,6 +94,10 @@ methods['org.freedesktop.DBus.Introspectable.Introspect'] = {'', 's', function()
   <interface name="org.lua.SimpleDBus.Test">
     <method name="Test">
       <arg direction="in" type="v"/>
+      <arg direction="out" type="s"/>
+    </method>
+    <method name="Error">
+      <arg direction="out" type="s"/>
       <arg direction="out" type="s"/>
     </method>
     <method name="Unregister">
