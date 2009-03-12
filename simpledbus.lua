@@ -33,7 +33,7 @@ end
 
 do
    local Method = M.Method
-   function M.new_method(name, interface, signature, result)
+   local function new_method(name, interface, signature, result)
       return setmetatable({
          name = name,
          interface = interface,
@@ -41,14 +41,10 @@ do
          result = result
       }, Method)
    end
+   M.new_method = new_method
 
    function M.Proxy:add_method(name, interface, signature, result)
-      self[name] = setmetatable({
-         name = name,
-         interface = interface,
-         signature = signature,
-         result = result
-      }, Method)
+      self[name] = new_method(name, interface, signature, result)
    end
 end
 
@@ -59,6 +55,29 @@ do
          proxy.bus, proxy.target, proxy.object,
          method.interface, method.name,
          method.signature, ...)
+   end
+
+   local target, object, interface =
+      M.SERVICE_DBUS, M.PATH_DBUS, M.INTERFACE_DBUS
+
+   function M.Bus:request_name(name, flags)
+      return call_method(self, target, object, interface,
+            'RequestName', 'su', name, flags or 0)
+   end
+
+   function M.Bus:release_name(name)
+      return call_method(self, target, object, interface,
+            'ReleaseName', 's', name)
+   end
+
+   function M.Bus:add_match(rule)
+      return call_method(self, target, object, interface,
+            'AddMatch', 's', rule)
+   end
+
+   function M.Bus:remove_match(rule)
+      return call_method(self, target, object, interface,
+            'RemoveMatch', 's', rule)
    end
 end
 
@@ -92,33 +111,6 @@ do
 
       return proxy
    end
-end
-
-do
-   local call_method = M.Bus.call_method
-   local target, object, interface =
-      M.SERVICE_DBUS, M.PATH_DBUS, M.INTERFACE_DBUS
-
-   function M.Bus:request_name(name, flags)
-      return call_method(self, target, object, interface,
-            'RequestName', 'su', name, flags or 0)
-   end
-
-   function M.Bus:release_name(name)
-      return call_method(self, target, object, interface,
-            'ReleaseName', 's', name)
-   end
-
-   function M.Bus:add_match(rule)
-      return call_method(self, target, object, interface,
-            'AddMatch', 's', rule)
-   end
-
-   function M.Bus:remove_match(rule)
-      return call_method(self, target, object, interface,
-            'RemoveMatch', 's', rule)
-   end
-
 end
 
 do
@@ -158,7 +150,7 @@ do
    end
    Bus.register_signal = register_signal
 
-   function M.Bus:register_auto_signal(signal, f)
+   function Bus:register_auto_signal(signal, f)
       return register_signal(self,
          signal.object,
          signal.interface,
@@ -203,7 +195,7 @@ do
    end
    Bus.unregister_signal = unregister_signal
 
-   function M.Bus:unregister_auto_signal(signal)
+   function Bus:unregister_auto_signal(signal)
       return unregister_signal(self,
          signal.object,
          signal.interface,
