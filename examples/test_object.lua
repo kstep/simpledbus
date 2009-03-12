@@ -67,6 +67,18 @@ do
    end}
 end
 
+do
+   local DBusProxy = assert(bus:auto_proxy(
+      'org.freedesktop.DBus', '/org/freedesktop/DBus'))
+
+   methods['org.lua.SimpleDBus.Test.ListNames'] = {'', 'as', function()
+      print 'ListNames() method called..'
+      local list = assert(DBusProxy:ListNames())
+      print ' ..got list. Returning it.'
+      return list
+   end}
+end
+
 methods['org.lua.SimpleDBus.Test.Unregister'] = {'', 's', function()
    local r, msg = bus:unregister_object_path('/org/lua/SimpleDBus/Test')
    if r then
@@ -99,6 +111,9 @@ methods['org.freedesktop.DBus.Introspectable.Introspect'] = {'', 's', function()
     <method name="Error">
       <arg direction="out" type="s"/>
       <arg direction="out" type="s"/>
+    </method>
+    <method name="ListNames">
+      <arg direction="out" type="as"/>
     </method>
     <method name="Unregister">
       <arg direction="out" type="s"/>
