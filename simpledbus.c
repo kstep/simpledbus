@@ -1188,6 +1188,7 @@ LUALIB_API int luaopen_simpledbus_core(lua_State *L)
 	set_dbus_string_constant(L, 2, SERVICE_DBUS);
 	set_dbus_string_constant(L, 2, PATH_DBUS);
 	set_dbus_string_constant(L, 2, INTERFACE_DBUS);
+	set_dbus_string_constant(L, 2, INTERFACE_INTROSPECTABLE);
 	set_dbus_string_constant(L, 2, INTERFACE_PROPERTIES);
 	set_dbus_string_constant(L, 2, INTERFACE_PEER);
 	set_dbus_string_constant(L, 2, INTERFACE_LOCAL);
