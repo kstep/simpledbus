@@ -19,115 +19,138 @@
 #ifndef ALLINONE
 #define LUA_LIB
 #include <lua.h>
-#include <lauxlib.h>
 #include <dbus/dbus.h>
 
 #define EXPORT
 #endif
 
-typedef void (*addfunc)(lua_State *L, int index,
+enum add_return {
+	ADD_OK = 0,
+	ADD_ERROR
+};
+
+typedef enum add_return (*add_function)(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args);
 
-static addfunc get_addfunc(DBusSignatureIter *type);
+static add_function get_addfunc(DBusSignatureIter *type);
 
-static void add_error(lua_State *L, int index,
-		DBusSignatureIter *type, DBusMessageIter *args)
+static enum add_return add_error(lua_State *L, int index, int expected)
 {
-	(void)luaL_error(L, "Adding type '%s' is not implemented yet",
-			dbus_signature_iter_get_signature(type));
+	lua_pushfstring(L, "(%s expected, got %s)",
+			lua_typename(L, expected),
+			lua_typename(L, lua_type(L, index)));
+
+	return ADD_ERROR;
 }
 
-static void add_byte(lua_State *L, int index,
+static enum add_return add_not_implemented(lua_State *L, int index,
+		DBusSignatureIter *type, DBusMessageIter *args)
+{
+	lua_pushfstring(L, "(adding type '%s' not implemented yet)",
+			dbus_signature_iter_get_signature(type));
+
+	return ADD_ERROR;
+}
+
+static enum add_return add_byte(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	unsigned char n;
 	if (!lua_isnumber(L, index))
-		(void)luaL_error(L, "Expected number");
+		return add_error(L, index, LUA_TNUMBER);
 	n = (unsigned char)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_BYTE, &n);
+	return ADD_OK;
 }
 
-static void add_boolean(lua_State *L, int index,
+static enum add_return add_boolean(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	dbus_bool_t b;
 	if (!lua_isboolean(L, index))
-		(void)luaL_error(L, "Expected boolean");
+		return add_error(L, index, LUA_TBOOLEAN);
 	b = lua_toboolean(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_BOOLEAN, &b);
+	return ADD_OK;
 }
 
-static void add_int16(lua_State *L, int index,
+static enum add_return add_int16(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	dbus_int16_t n;
 	if (!lua_isnumber(L, index))
-		(void)luaL_error(L, "Expected number");
+		return add_error(L, index, LUA_TNUMBER);
 	n = (dbus_int16_t)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_INT16, &n);
+	return ADD_OK;
 }
 
-static void add_uint16(lua_State *L, int index,
+static enum add_return add_uint16(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	dbus_uint16_t n;
 	if (!lua_isnumber(L, index))
-		(void)luaL_error(L, "Expected number");
+		return add_error(L, index, LUA_TNUMBER);
 	n = (dbus_uint16_t)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_UINT16, &n);
+	return ADD_OK;
 }
 
-static void add_int32(lua_State *L, int index,
+static enum add_return add_int32(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	dbus_int32_t n;
 	if (!lua_isnumber(L, index))
-		(void)luaL_error(L, "Expected number");
+		return add_error(L, index, LUA_TNUMBER);
 	n = (dbus_int32_t)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_INT32, &n);
+	return ADD_OK;
 }
 
-static void add_uint32(lua_State *L, int index,
+static enum add_return add_uint32(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	dbus_uint32_t n;
 	if (!lua_isnumber(L, index))
-		(void)luaL_error(L, "Expected number");
+		return add_error(L, index, LUA_TNUMBER);
 	n = (dbus_uint32_t)lua_tonumber(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_UINT32, &n);
+	return ADD_OK;
 }
 
-static void add_string(lua_State *L, int index,
+static enum add_return add_string(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	const char *s;
 	if (!lua_isstring(L, index))
-		(void)luaL_error(L, "Expected string");
+		return add_error(L, index, LUA_TSTRING);
 	s = lua_tostring(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_STRING, &s);
+	return ADD_OK;
 }
 
-static void add_object_path(lua_State *L, int index,
+static enum add_return add_object_path(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	const char *s;
 	if (!lua_isstring(L, index))
-		(void)luaL_error(L, "Expected string");
+		return add_error(L, index, LUA_TSTRING);
 	s = lua_tostring(L, index);
 	dbus_message_iter_append_basic(args, DBUS_TYPE_OBJECT_PATH, &s);
+	return ADD_OK;
 }
 
-static void add_array(lua_State *L, int index,
+static enum add_return add_array(lua_State *L, int index,
 		DBusSignatureIter *type, DBusMessageIter *args)
 {
 	DBusSignatureIter array_type;
 	DBusMessageIter array_args;
 	char *signature;
-	addfunc af;
+	add_function af;
 	int i;
 
 	if (!lua_istable(L, index))
-		(void)luaL_error(L, "Expected table (array)");
+		return add_error(L, index, LUA_TTABLE);
 
 	dbus_signature_iter_recurse(type, &array_type);
 
@@ -144,7 +167,11 @@ static void add_array(lua_State *L, int index,
 		if (lua_isnil(L, -1))
 			break;
 
-		af(L, -1, &array_type, &array_args);
+		if (af(L, -1, &array_type, &array_args) != ADD_OK) {
+			lua_insert(L, -3);
+			lua_pop(L, 2);
+			return ADD_ERROR;
+		}
 
 		lua_pop(L, 1);
 
@@ -156,9 +183,11 @@ static void add_array(lua_State *L, int index,
 	dbus_free(signature);
 
 	dbus_message_iter_close_container(args, &array_args);
+
+	return ADD_OK;
 }
 
-static addfunc get_addfunc(DBusSignatureIter *type)
+static add_function get_addfunc(DBusSignatureIter *type)
 {
 	switch (dbus_signature_iter_get_current_type(type)) {
 	case DBUS_TYPE_BOOLEAN:
@@ -181,24 +210,37 @@ static addfunc get_addfunc(DBusSignatureIter *type)
 		return add_array;
 	}
 
-	return add_error;
+	return add_not_implemented;
 }
 
-EXPORT void add_arguments(lua_State *L, int i, int argc, const char *signature,
-		DBusMessage *msg)
+EXPORT unsigned int add_arguments(lua_State *L, int start, int argc,
+		const char *signature, DBusMessage *msg)
 {
 	DBusMessageIter args;
 	DBusSignatureIter type;
+	int i = start;
 
 	dbus_message_iter_init_append(msg, &args);
 	dbus_signature_iter_init(&type, signature);
 
 	do {
-		if (i > argc)
-			(void)luaL_error(L, "Too few arguments");
+		if (i > argc) {
+			lua_pushfstring(L, "type error adding value #%d "
+					"of '%s' (too few arguments)",
+					i - start + 1, signature);
+			return 1;
+		}
 
-		(get_addfunc(&type))(L, i, &type, &args);
+		if ((get_addfunc(&type))(L, i, &type, &args) != ADD_OK) {
+			lua_pushfstring(L, "type error adding value #%d of '%s' ",
+					i - start + 1, signature);
+			lua_insert(L, -2);
+			lua_concat(L, 2);
+			return 1;
+		}
 
 		i++;
 	} while (dbus_signature_iter_next(&type));
+
+	return 0;
 }

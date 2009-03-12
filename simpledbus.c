@@ -324,8 +324,9 @@ static int bus_call_method(lua_State *L)
 	/* get the signature and add arguments */
 	if (lua_isstring(L, 6)) {
 		const char *signature = lua_tostring(L, 6);
-		if (*signature)
-			add_arguments(L, 7, lua_gettop(L), signature, msg);
+		if (*signature &&
+				add_arguments(L, 7, lua_gettop(L), signature, msg))
+			return lua_error(L);
 	}
 
 	/* if (!lua_pushthread(L)) { / * L can be yielded */
@@ -486,8 +487,9 @@ static int bus_send_signal(lua_State *L)
 
 	if (lua_isstring(L, 5)) {
 		const char *signature = lua_tostring(L, 5);
-		if (*signature)
-			add_arguments(L, 6, lua_gettop(L), signature, msg);
+		if (*signature &&
+				add_arguments(L, 6, lua_gettop(L), signature, msg))
+			return lua_error(L);
 	}
 
 	r = dbus_connection_send(conn, msg, NULL);
@@ -542,8 +544,12 @@ static int send_reply(lua_State *T)
 		}
 
 		signature = lua_tostring(T, 4);
-		if (signature && *signature != '\0')
-			add_arguments(T, 5, top, signature, reply);
+		if (signature && *signature &&
+				add_arguments(T, 5, top, signature, reply)) {
+			/* add_arguments() pushes its own error message */
+			dbus_message_unref(reply);
+			return 1;
+		}
 	}
 
 	if (!dbus_connection_send(conn, reply, NULL)) {
