@@ -18,17 +18,6 @@
 
 local M = require 'simpledbus.core'
 
-do
-   local Proxy = M.Proxy
-   function M.Bus:new_proxy(target, object)
-      return setmetatable({
-         target = target,
-         object = object,
-         bus = self
-      }, Proxy)
-   end
-end
-
 function M.new_error(name)
    if name == nil or name == '' then
       name = 'org.freedesktop.DBus.Error.Failed'
@@ -64,17 +53,32 @@ do
 end
 
 do
+   local call_method = M.Bus.call_method
+   function M.Method.__call(method, proxy, ...)
+      return call_method(
+         proxy.bus, proxy.target, proxy.object,
+         method.interface, method.name,
+         method.signature, ...)
+   end
+end
+
+do
+   local Proxy = M.Proxy
+   local function new_proxy(bus, target, object)
+      return setmetatable({
+         target = target,
+         object = object,
+         bus = bus
+      }, Proxy)
+   end
+   M.Bus.new_proxy = new_proxy
+
    local Introspect = M.new_method('Introspect',
       M.INTERFACE_INTROSPECTABLE)
    M.Introspect = Introspect
 
-   local Proxy = M.Proxy
    function M.Bus:auto_proxy(target, object)
-      local proxy = setmetatable({
-         target = target,
-         object = object,
-         bus = self
-      }, Proxy)
+      local proxy = new_proxy(self, target, object)
 
       local r, msg = Introspect(proxy)
       if not r then
@@ -87,16 +91,6 @@ do
       end
 
       return proxy
-   end
-end
-
-do
-   local call_method = M.Bus.call_method
-   function M.Method.__call(method, proxy, ...)
-      return call_method(
-         proxy.bus, proxy.target, proxy.object,
-         method.interface, method.name,
-         method.signature, ...)
    end
 end
 
