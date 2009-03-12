@@ -79,7 +79,6 @@ typedef struct {
 	unsigned int watches_changed;
 	unsigned int nactive;
 	DBusWatch *active;
-	int index;
 } LCon;
 
 static dbus_bool_t watch_list_insert(LCon *c, DBusWatch *watch)
@@ -208,6 +207,7 @@ static int bus_get_signal_table(lua_State *L)
 	(void)bus_check(L, 1);
 
 	lua_getfenv(L, 1);
+	lua_rawgeti(L, 2, 2);
 
 	return 1;
 }
@@ -404,7 +404,7 @@ static int bus_call_method(lua_State *L)
 	lua_pushfstring(L, "%s\n%s\n%s", object, interface, signal)
 
 static DBusHandlerResult signal_handler(DBusConnection *conn,
-		DBusMessage *msg, LCon *c)
+		DBusMessage *msg, lua_State *S)
 {
 	lua_State *T;
 
@@ -412,37 +412,37 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 			!= DBUS_MESSAGE_TYPE_SIGNAL)
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
-	push_signal_string(mainThread,
+	push_signal_string(S,
 			dbus_message_get_path(msg),
 			dbus_message_get_interface(msg),
 			dbus_message_get_member(msg));
 #ifdef DEBUG
-	printf("received \"%s\"\n", lua_tostring(mainThread, -1));
+	printf("received \"%s\"\n", lua_tostring(S, 2));
 	fflush(stdout);
 #endif
-	lua_rawget(mainThread, c->index); /* signal handler table */
-	if (lua_type(mainThread, -1) != LUA_TFUNCTION) {
-		lua_pop(mainThread, 1);
+	lua_rawget(S, 1); /* signal handler table */
+	if (lua_type(S, 2) != LUA_TFUNCTION) {
+		lua_settop(S, 1);
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 	}
 
 	/* create new Lua thread */
-	T = lua_newthread(mainThread);
+	T = lua_newthread(S);
+	lua_insert(S, 2);
 	/* push nil to let whoever sees the end of this thread
 	 * know that nothing further needs to be done */
 	lua_pushnil(T);
 	/* move the Lua signal handler there */
-	lua_insert(mainThread, -2);
-	lua_xmove(mainThread, T, 1);
+	lua_xmove(S, T, 1);
 
 	switch (lua_resume(T, push_arguments(T, msg))) {
 	case 0: /* thread finished */
-		/* just forget about it */
-		lua_pop(mainThread, 1);
-		break;
 	case LUA_YIELD:	/* thread yielded */
+		/* just forget about it */
+		lua_settop(S, 1);
 		break;
-	default:
+	default: /* thread errored */
+		lua_settop(S, 1);
 		/* move error message to main thread and error */
 		lua_xmove(T, mainThread, 1);
 		lua_error(mainThread);
@@ -607,14 +607,15 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 		if (send_reply(T)) {
 			/* move error message to main thread and error */
 			lua_xmove(T, mainThread, 1);
+			lua_settop(O, 1);
 			lua_error(mainThread);
 		}
+	case LUA_YIELD:	/* thread yielded */
 		/* forget about the thread */
 		lua_settop(O, 1);
 		break;
-	case LUA_YIELD:	/* thread yielded */
-		break;
-	default:
+	default: /* thread errored */
+		lua_settop(O, 1);
 		/* move error message to main thread and error */
 		lua_xmove(T, mainThread, 1);
 		lua_error(mainThread);
@@ -664,8 +665,7 @@ static int bus_register_object_path(lua_State *L)
 	/* move method table before path */
 	lua_insert(L, 3);
 
-	/* create thread for storing object data
-	 * PS. yes, this is a bad hack >.< */
+	/* create thread for storing object data */
 	O = lua_newthread(L);
 	if (O == NULL) {
 		lua_pushnil(L);
@@ -845,14 +845,6 @@ static int simpledbus_mainloop(lua_State *L)
 	if (mainThread)
 		return luaL_error(L, "Another main loop is already running");
 
-	/* make sure the stack can hold all the "fenv"'s of
-	 * the connections (and a bit more) */
-	if (!lua_checkstack(L, n+3)) {
-		lua_pushnil(L);
-		lua_pushliteral(L, "Out of memory");
-		return 2;
-	}
-
 	c = malloc(n * sizeof(LCon *));
 	if (c == NULL) {
 		lua_pushnil(L);
@@ -860,11 +852,8 @@ static int simpledbus_mainloop(lua_State *L)
 		return 2;
 	}
 
-	for (i = 0; i < n; i++) {
+	for (i = 0; i < n; i++)
 		c[i] = bus_check(L, i+1);
-		lua_getfenv(L, i+1);
-		c[i]->index = lua_gettop(L);
-	}
 
 	fds = make_poll_struct(n, c, &nfds);
 	if (fds == NULL) {
@@ -935,6 +924,7 @@ static int simpledbus_stop(lua_State *L)
 static int new_connection(lua_State *L, DBusConnection *conn)
 {
 	LCon *c;
+	lua_State *S;
 
 	if (dbus_error_is_set(&err)) {
 		lua_pushnil(L);
@@ -968,6 +958,34 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 	c->nactive = 0;
 	c->active = NULL;
 
+	/* set the metatable */
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_setmetatable(L, 1);
+
+	/* create new environment table for
+	 * signal handlers and running threads */
+	lua_createtable(L, 2, 0);
+	lua_pushvalue(L, 2);
+	lua_setfenv(L, 1);
+
+	/* create thread for signal handler */
+	S = lua_newthread(L);
+	if (S == NULL) {
+		lua_pushnil(L);
+		lua_pushliteral(L, "Out of memory");
+		return 2;
+	}
+	/* ..and save it */
+	lua_rawseti(L, 2, 1);
+
+	/* create signal table */
+	lua_newtable(L);
+	/* ..save it */
+	lua_pushvalue(L, 3);
+	lua_rawseti(L, 2, 2);
+	/* ..and move it to the thread */
+	lua_xmove(L, S, 1);
+
 	/* set watch functions */
 	if (!dbus_connection_set_watch_functions(conn,
 				(DBusAddWatchFunction)add_watch_cb,
@@ -983,27 +1001,20 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 	/* set the signal handler */
 	if (!dbus_connection_add_filter(conn,
 				(DBusHandleMessageFunction)signal_handler,
-				c, NULL)) {
+				S, NULL)) {
 		dbus_connection_unref(conn);
 		lua_pushnil(L);
-		lua_pushliteral(L, "Error adding filter");
+		lua_pushliteral(L, "Out of memory");
 		return 2;
 	}
-
-	/* set the metatable */
-	lua_pushvalue(L, lua_upvalueindex(1));
-	lua_setmetatable(L, 1);
-
-	/* create new environment table for
-	 * signal handlers and running threads */
-	lua_newtable(L);
-	lua_setfenv(L, 1);
 
 	/* insert the connection in the connection table */
 	lua_pushlightuserdata(L, conn);
 	lua_pushvalue(L, 1);
 	lua_rawset(L, lua_upvalueindex(2));
 
+	/* return the connection */
+	lua_settop(L, 1);
 	return 1;
 }
 
