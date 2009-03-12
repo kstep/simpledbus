@@ -215,13 +215,15 @@ static int bus_get_signal_table(lua_State *L)
 static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 {
 	DBusMessage *msg = dbus_pending_call_steal_reply(pending);
-	LCon *c;
 	int nargs;
 
 	dbus_pending_call_unref(pending);
 
-	/* pop the connection from the thread */
-	c = lua_touserdata(T, -1);
+	/* remove the thread from the threads table */
+	lua_pushthread(T);
+	lua_pushnil(T);
+	lua_rawset(T, -3);
+	/* pop threads table from the thread */
 	lua_pop(T, 1);
 
 	if (msg == NULL) {
@@ -263,11 +265,6 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 			lua_xmove(T, mainThread, 1);
 			lua_error(mainThread);
 		}
-		/* remove it from the running threads table */
-		lua_pushthread(T);
-		lua_xmove(T, mainThread, 1);
-		lua_pushnil(mainThread);
-		lua_rawset(mainThread, c->index); /* thread table */
 		break;
 	case LUA_YIELD: /* thread yielded again */
 		break;
@@ -347,8 +344,14 @@ static int bus_call_method(lua_State *L)
 			return 2;
 		}
 
-		/* yield the connection */
+		/* get the threads table */
 		lua_settop(L, 1);
+		lua_getfenv(L, 1);
+		/* save the thread there */
+		lua_pushthread(L);
+		lua_pushboolean(L, 1);
+		lua_rawset(L, 2);
+		/* yield the threads table */
 		return lua_yield(L, 1);
 	}
 	/* lua_pop(L, 1); */
@@ -438,9 +441,6 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 		lua_pop(mainThread, 1);
 		break;
 	case LUA_YIELD:	/* thread yielded */
-		/* save it in the running threads table */
-		lua_pushboolean(mainThread, 1);
-		lua_rawset(mainThread, c->index); /* thread table */
 		break;
 	default:
 		/* move error message to main thread and error */
@@ -570,9 +570,9 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 			dbus_message_get_interface(msg),
 			dbus_message_get_member(msg));
 
-	lua_rawget(O, 2);
-	if (!lua_istable(O, 3)) {
-		lua_settop(O, 2);
+	lua_rawget(O, 1);
+	if (!lua_istable(O, 2)) {
+		lua_settop(O, 1);
 #ifdef DEBUG
 		printf("..not handled\n"); fflush(stdout);
 #endif
@@ -582,7 +582,7 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 	/* create a new thread to run the method in */
 	T = lua_newthread(O);
 	/* ..and insert it before the function table */
-	lua_insert(O, 3);
+	lua_insert(O, 2);
 
 	/* push the send_reply function */
 	lua_pushcclosure(T, send_reply, 0);
@@ -595,12 +595,12 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 	lua_pushlightuserdata(T, msg);
 
 	/* move the return signature and the function to T */
-	lua_rawgeti(O, 4, 2);
-	lua_rawgeti(O, 4, 3);
+	lua_rawgeti(O, 3, 2);
+	lua_rawgeti(O, 3, 3);
 	lua_xmove(O, T, 2);
 
 	/* forget about the function table */
-	lua_settop(O, 3);
+	lua_settop(O, 2);
 
 	switch (lua_resume(T, push_arguments(T, msg))) {
 	case 0: /* thread finished */
@@ -610,12 +610,9 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 			lua_error(mainThread);
 		}
 		/* forget about the thread */
-		lua_settop(O, 2);
+		lua_settop(O, 1);
 		break;
 	case LUA_YIELD:	/* thread yielded */
-		/* save it in the running threads table */
-		lua_pushboolean(O, 1);
-		lua_rawset(O, 1); /* thread table */
 		break;
 	default:
 		/* move error message to main thread and error */
@@ -682,10 +679,6 @@ static int bus_register_object_path(lua_State *L)
 		lua_pushliteral(L, "Out of memory");
 		return 2;
 	}
-
-	/* push the thread table to the thread */
-	lua_pushvalue(L, 2);
-	lua_xmove(L, O, 1);
 
 	/* save the thread in the thread table */
 	lua_rawset(L, 2);
