@@ -168,8 +168,8 @@ static enum add_return add_array(lua_State *L, int index,
 			break;
 
 		if (af(L, -1, &array_type, &array_args) != ADD_OK) {
-			lua_insert(L, -3);
-			lua_pop(L, 2);
+			lua_insert(L, -2);
+			lua_pop(L, 1);
 			return ADD_ERROR;
 		}
 
