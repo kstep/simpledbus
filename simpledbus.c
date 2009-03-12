@@ -48,7 +48,7 @@
 static DBusError err;
 static DBusObjectPathVTable vtable;
 static lua_State *mainThread = NULL;
-static unsigned int stop;
+static int stop;
 
 #ifdef DEBUG
 static void dump_watch(DBusWatch *watch)
@@ -260,18 +260,20 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 				lua_gettop(T),
 				lua_typename(T, lua_type(T, 1)));
 #endif
-		if (lua_iscfunction(T, 1) && lua_tocfunction(T, 1)(T)) {
-			/* move error message to main thread and error */
+		if (lua_iscfunction(T, 1) && lua_tocfunction(T, 1)(T)
+				&& stop == 0) {
+			/* move error message to main thread */
 			lua_xmove(T, mainThread, 1);
-			lua_error(mainThread);
+			stop = -1;
 		}
-		break;
 	case LUA_YIELD: /* thread yielded again */
 		break;
 	default:
-		/* move error message to main thread and error */
-		lua_xmove(T, mainThread, 1);
-		lua_error(mainThread);
+		if (stop == 0) {
+			/* move error message to main */
+			lua_xmove(T, mainThread, 1);
+			stop = -1;
+		}
 	}
 }
 
@@ -443,9 +445,11 @@ static DBusHandlerResult signal_handler(DBusConnection *conn,
 		break;
 	default: /* thread errored */
 		lua_settop(S, 1);
-		/* move error message to main thread and error */
-		lua_xmove(T, mainThread, 1);
-		lua_error(mainThread);
+		if (stop == 0) {
+			/* move error message to main */
+			lua_xmove(T, mainThread, 1);
+			stop = -1;
+		}
 	}
 
 	return DBUS_HANDLER_RESULT_HANDLED;
@@ -604,11 +608,10 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 
 	switch (lua_resume(T, push_arguments(T, msg))) {
 	case 0: /* thread finished */
-		if (send_reply(T)) {
+		if (send_reply(T) && stop == 0) {
 			/* move error message to main thread and error */
 			lua_xmove(T, mainThread, 1);
-			lua_settop(O, 1);
-			lua_error(mainThread);
+			stop = -1;
 		}
 	case LUA_YIELD:	/* thread yielded */
 		/* forget about the thread */
@@ -616,9 +619,11 @@ static DBusHandlerResult method_call_handler(DBusConnection *conn,
 		break;
 	default: /* thread errored */
 		lua_settop(O, 1);
-		/* move error message to main thread and error */
-		lua_xmove(T, mainThread, 1);
-		lua_error(mainThread);
+		if (stop == 0) {
+			/* move error message to main */
+			lua_xmove(T, mainThread, 1);
+			stop = -1;
+		}
 	}
 
 	return DBUS_HANDLER_RESULT_HANDLED;
@@ -906,9 +911,10 @@ static int simpledbus_mainloop(lua_State *L)
 
 	mainThread = NULL;
 
-	/* return true */
-	lua_pushboolean(L, 1);
-	return 1;
+	if (stop < 0)
+		return lua_error(L);
+
+	return stop;
 }
 
 /*
@@ -916,7 +922,19 @@ static int simpledbus_mainloop(lua_State *L)
  */
 static int simpledbus_stop(lua_State *L)
 {
-	stop = 1;
+	if (mainThread == NULL)
+		return luaL_error(L, "Main loop not running");
+
+	stop = lua_gettop(L);
+
+	if (stop == 0) {
+		lua_pushboolean(L, 1);
+		stop = 1;
+	}
+
+	lua_checkstack(mainThread, stop);
+
+	lua_xmove(L, mainThread, stop);
 
 	return 0;
 }
