@@ -850,11 +850,14 @@ static int simpledbus_mainloop(lua_State *L)
 	int i;
 	int n = lua_gettop(L);
 
-	if (n < 1)
-		return luaL_error(L, "Too few arguments");
-
 	if (mainThread)
 		return luaL_error(L, "Another main loop is already running");
+
+	if (lua_isfunction(L, n))
+		n--;
+
+	if (n < 1)
+		return luaL_error(L, "At least 1 DBus connection required");
 
 	c = malloc(n * sizeof(LCon *));
 	if (c == NULL) {
@@ -898,6 +901,61 @@ static int simpledbus_mainloop(lua_State *L)
 	stop = 0;
 	mainThread = L;
 
+	/* read, write, dispatch until we get a break */
+	while (1) {
+		unsigned int watches_changed = dispatchall(n, c);
+		int r;
+
+		if (stop)
+			goto exit;
+
+		if (watches_changed) {
+			free(fds);
+			fds = make_poll_struct(n, c, &nfds);
+			if (fds == NULL) {
+				free(c);
+				mainThread = NULL;
+				lua_pushnil(L);
+				lua_pushliteral(L, "Out of memory");
+				return 2;
+			}
+		}
+		r = poll(fds, nfds, 0);
+		if (r < 0) {
+			lua_pushnil(L);
+			lua_pushfstring(L, "Error polling DBus: %s",
+					strerror(errno));
+			stop = 2;
+			goto exit;
+		}
+		if (r == 0)
+			break;
+
+		handleall(n, c, fds);
+	}
+
+	/* if the last argument was a function,
+	 * start it in a new thread */
+	if (n < lua_gettop(L)) {
+		lua_State *T = lua_newthread(L);
+		lua_insert(L, n+1);
+		lua_xmove(L, T, 1);
+
+		switch (lua_resume(T, 0)) {
+		case 0: /* thread finished */
+		case LUA_YIELD:	/* thread yielded */
+			/* forget about the thread */
+			lua_settop(L, n);
+			break;
+		default: /* thread errored */
+			/* move error message to main thread */
+			lua_xmove(T, L, 1);
+			stop = -1;
+			goto exit;
+		}
+	}
+
+	/* now run the real main loop */
 	while (1) {
 		unsigned int watches_changed = dispatchall(n, c);
 
@@ -915,24 +973,17 @@ static int simpledbus_mainloop(lua_State *L)
 				return 2;
 			}
 		}
-#ifdef DEBUG
-		printf("("); fflush(stdout);
-#endif
 		if (poll(fds, nfds, -1) < 0) {
-			free(c);
-			free(fds);
-			mainThread = NULL;
 			lua_pushnil(L);
 			lua_pushfstring(L, "Error polling DBus: %s",
 					strerror(errno));
-			return 2;
+			stop = 2;
+			break;
 		}
-#ifdef DEBUG
-		printf(")"); fflush(stdout);
-#endif
 		handleall(n, c, fds);
 	}
 
+exit:
 	free(c);
 	free(fds);
 
