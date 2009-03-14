@@ -247,7 +247,7 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
 		default:
 			dbus_message_unref(msg);
 			lua_pushnil(T);
-			lua_pushliteral(T, "Uknown reply");
+			lua_pushliteral(T, "Unknown reply");
 			nargs = 2;
 		}
 	}
@@ -863,8 +863,29 @@ static int simpledbus_mainloop(lua_State *L)
 		return 2;
 	}
 
-	for (i = 0; i < n; i++)
+	for (i = 0; i < n; i++) {
+		/* don't use bus_check() so we can free c
+		 * before erroring
 		c[i] = bus_check(L, i+1);
+		*/
+		int r;
+
+		if (lua_getmetatable(L, i+1) == 0) {
+			free(c);
+			return luaL_argerror(L, i+1,
+					"expected a DBus connection");
+		}
+
+		r = lua_equal(L, lua_upvalueindex(1), -1);
+		lua_pop(L, 1);
+		if (r == 0) {
+			free(c);
+			return luaL_argerror(L, i+1,
+					"expected a DBus connection");
+		}
+
+		c[i] = lua_touserdata(L, i+1);
+	}
 
 	fds = make_poll_struct(n, c, &nfds);
 	if (fds == NULL) {
