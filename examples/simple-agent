@@ -1,0 +1,151 @@
+#!/usr/bin/env lua
+--[[ SimpleDBus example script
+
+This is a copy of the simple-agent python script in the Bluez sources.
+
+Last tested with Bluez 4.30
+--]]
+
+-- Import the simpledbus module
+local DBus = require 'simpledbus'
+
+-- Get the system bus
+local bus = assert(DBus.SystemBus())
+
+-- Create the agent exported object
+local agent_path = '/test/agent'
+local agent = DBus.EObject(agent_path)
+agent.exit_on_release = true
+
+agent:add_method('org.bluez.Agent', 'Release', '', '',
+function()
+   if agent.exit_on_release then
+      DBus.stop()
+   end
+end)
+
+agent:add_method('org.bluez.Agent', 'Authorize', 'os', '',
+function(device, uuid)
+   print(('Authorize (%s, %s)'):format(device, uuid))
+end)
+
+agent:add_method('org.bluez.Agent', 'RequestPinCode', 'o', 's',
+function(device)
+   print(('RequestPinCode (%s)'):format(device))
+   io.write 'Enter PIN Code: '
+   return io.read()
+end)
+
+agent:add_method('org.bluez.Agent', 'RequestPasskey', 'o', 'u',
+function(device)
+   print(('RequestPasskey (%s)'):format(device))
+   while true do
+      io.write 'Enter passkey: '
+      local passkey = tonumber(io.read())
+      if passkey then return passkey end
+      print 'A decimal number is needed..'
+   end
+end)
+
+agent:add_method('org.bluez.Agent', 'DisplayPasskey', 'ou', '',
+function(device, passkey)
+   print(('DisplayPasskey (%s, %d)'):format(device, passkey))
+end)
+
+do
+   local Rejected = DBus.new_error('org.bluez.Error.Rejected')
+
+   agent:add_method('org.bluez.Agent', 'RequestConfirmation', 'ou', '',
+   function(device, passkey)
+      print(('RequestConfirmation (%s, %d)'):format(device, passkey))
+      io.write 'Confirm passkey (yes/no): '
+      local confirm = io.read()
+      if confirm == 'yes' then
+         return
+      end
+
+      return Rejected("Passkey doesn't match")
+   end)
+end
+
+agent:add_method('org.bluez.Agent', 'ConfirmModeChange', 's', '',
+function(mode)
+   print(('ConfirmModeChange (%s)'):format(mode))
+end)
+
+agent:add_method('org.bluez.Agent', 'Cancel', '', '',
+function()
+   print 'Cancel'
+end)
+
+-- Register the agent object
+assert(bus:register_object(agent))
+
+-- Get the adapter proxy object
+local adapter
+do
+   local manager = assert(bus:auto_proxy('org.bluez', '/'))
+   local path
+
+   if #arg >= 1 then
+      path = assert(manager:FindAdapter(arg[1]))
+   else
+      path = assert(manager:DefaultAdapter())
+   end
+
+   adapter = assert(bus:auto_proxy('org.bluez', path))
+end
+
+-- If both the adapter and address is given at the command line
+-- call CreatePairedDevice()
+-- Otherwise just register our agent with Bluez
+if #arg >= 2 then
+   -- If a third argument is given remove the device first
+   if #arg >= 3 then
+      local device, err = adapter:FindDevice(arg[2])
+      if err then
+         if err == 'Device does not exist' then
+            print(err)
+         else
+            error(err)
+         end
+      else
+         local r, err = adapter:RemoveDevice(device)
+         if err then error(err) end
+      end
+   end
+
+   agent.exit_on_release = false
+
+   assert(DBus.mainloop(bus, function()
+      -- We need to run this code inside the main loop
+      -- since CreatePairedDevice will query our agent
+      -- object before returning
+      local device, err = adapter:CreatePairedDevice(arg[2], agent_path,
+            'DisplayYesNo')
+      if device then
+         print(('New device %s'):format(device))
+      else
+         print(('Creating device failed: %s'):format(err))
+      end
+
+      DBus.stop()
+   end))
+else
+   local r, err = adapter:RegisterAgent(agent_path, 'DisplayYesNo')
+   if err then error(err) end
+
+   print 'Agent registered'
+
+   r, err = DBus.mainloop(bus)
+   if not r then
+      print('Error: '..err)
+   end
+
+   r, err = adapter:UnregisterAgent(agent_path)
+   if err then error(err) end
+
+   print 'Agent unregistered'
+end
+
+-- vi: syntax=lua ts=3 sw=3 et:
