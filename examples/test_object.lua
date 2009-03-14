@@ -45,84 +45,57 @@ assert(bus:register_signal(
       end
    end))
 
--- create table for methods
-local methods = {}
+-- create object to export
+local o = DBus.EObject('/org/lua/SimpleDBus/Test')
 
--- register the object path
-assert(bus:register_object_path('/org/lua/SimpleDBus/Test', methods))
-
--- create methods
-methods['org.lua.SimpleDBus.Test.Test'] = {'v', 's', function(...)
+o:add_method('org.lua.SimpleDBus.Test', 'Test', 'v', 's',
+function(...)
    local s = 'You called Test('..stringify{ ... }..')'
 
    print(s)
    return s
-end}
+end)
 
 do
    local e = DBus.new_error()
-   methods['org.lua.SimpleDBus.Test.Error'] = {'', 'ss', function()
+   o:add_method('org.lua.SimpleDBus.Test', 'Error', '', '(ss)',
+   function()
       print 'Error() method called'
       return e('Hello World!')
-   end}
+   end)
 end
 
 do
    local DBusProxy = assert(bus:auto_proxy(
       'org.freedesktop.DBus', '/org/freedesktop/DBus'))
 
-   methods['org.lua.SimpleDBus.Test.ListNames'] = {'', 'as', function()
+   o:add_method('org.lua.SimpleDBus.Test', 'ListNames', '', 'as',
+   function()
       print 'ListNames() method called..'
       local list = assert(DBusProxy:ListNames())
       print ' ..got list. Returning it.'
       return list
-   end}
+   end)
 end
 
-methods['org.lua.SimpleDBus.Test.Unregister'] = {'', 's', function()
+o:add_method('org.lua.SimpleDBus.Test', 'Unregister', '', 's',
+function()
    local r, msg = bus:unregister_object_path('/org/lua/SimpleDBus/Test')
    if r then
       return 'OK'
    else
       return msg
    end
-end}
+end)
 
-methods['org.lua.SimpleDBus.Test.Exit'] = {'', '', function()
+o:add_method('org.lua.SimpleDBus.Test', 'Exit', '', '',
+function()
    print 'Exit() method called'
    DBus.stop()
-end}
+end)
 
-methods['org.freedesktop.DBus.Introspectable.Introspect'] = {'', 's', function()
-   return [[
-<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
-"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
-<node>
-  <interface name="org.freedesktop.DBus.Introspectable">
-    <method name="Introspect">
-      <arg name="data" direction="out" type="s"/>
-    </method>
-  </interface>
-  <interface name="org.lua.SimpleDBus.Test">
-    <method name="Test">
-      <arg direction="in" type="v"/>
-      <arg direction="out" type="s"/>
-    </method>
-    <method name="Error">
-      <arg direction="out" type="s"/>
-      <arg direction="out" type="s"/>
-    </method>
-    <method name="ListNames">
-      <arg direction="out" type="as"/>
-    </method>
-    <method name="Unregister">
-      <arg direction="out" type="s"/>
-    </method>
-    <method name="Exit"></method>
-  </interface>
-</node>
-]]
-end}
+-- register our object with DBus
+assert(bus:register_object(o))
 
 -- now run the main loop and wait for signals
 -- and method calls to arrive
