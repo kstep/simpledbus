@@ -963,6 +963,8 @@ static int new_connection(lua_State *L, DBusConnection *conn)
 		return 2;
 	}
 
+	dbus_connection_set_exit_on_disconnect(conn, FALSE);
+
 	lua_pushlightuserdata(L, conn);
 	lua_rawget(L, lua_upvalueindex(2)); /* connection table */
 	if (lua_type(L, -1) == LUA_TUSERDATA) {
