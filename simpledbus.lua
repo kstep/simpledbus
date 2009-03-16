@@ -248,13 +248,13 @@ do
       local i, n = 1, #in_sig
       while i <= n do
          local j = value_end(i, in_sig)
-         write '<arg direction="in" type = "' (sub(in_sig, i, j)) '" />';
+         write '<arg direction="in" type="' (sub(in_sig, i, j)) '" />';
          i = j+1
       end
       i, n = 1, #out_sig
       while i <= n do
          local j = value_end(i, out_sig)
-         write '<arg direction="out" type = "' (sub(out_sig, i, j)) '" />';
+         write '<arg direction="out" type="' (sub(out_sig, i, j)) '" />';
          i = j+1
       end
       write '</method>';
@@ -293,9 +293,9 @@ do
       for interface, methods in pairs(interfaces) do
          write '<interface name="'
          write(interface)
-         write '">';
+         write '">'
          for _, xml in pairs(methods) do
-            write(xml);
+            write(xml)
          end
          write '</interface>'
       end
