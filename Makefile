@@ -17,7 +17,7 @@ ifdef EXPAT_DIR
 	EXPAT_LIBDIR = $(EXPAT_DIR)/lib
 endif
 
-override CFLAGS += $(DEFINES) $(shell pkg-config --cflags dbus-1) $(shell pkg-config --cflags lua)
+override CFLAGS += $(DEFINES) $(shell pkg-config --cflags dbus-1) $(shell pkg-config --cflags lua5.1)
 override LDFLAGS += $(LIBFLAG) 
 
 ifdef EXPAT_INCDIR
