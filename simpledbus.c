@@ -285,7 +285,8 @@ static void method_return_handler(DBusPendingCall *pending, lua_State *T)
  * argument 3: object
  * argument 4: interface
  * argument 5: method
- * argument 6: signature (optional)
+ * argument 6: no reply
+ * argument 7: signature (optional)
  * ...
  */
 static int bus_call_method(lua_State *L)
@@ -301,7 +302,7 @@ static int bus_call_method(lua_State *L)
 				lua_tostring(L, 3),
 				lua_tostring(L, 4),
 				lua_tostring(L, 5),
-				lua_tostring(L, 6));
+				lua_tostring(L, 7));
 	fflush(stdout);
 #endif
 
@@ -322,12 +323,27 @@ static int bus_call_method(lua_State *L)
 	}
 
 	/* get the signature and add arguments */
-	if (lua_isstring(L, 6)) {
-		const char *signature = lua_tostring(L, 6);
+	if (lua_isstring(L, 7)) {
+		const char *signature = lua_tostring(L, 7);
 		if (*signature &&
-				add_arguments(L, 7, lua_gettop(L), signature, msg))
+				add_arguments(L, 8, lua_gettop(L), signature, msg))
 			return lua_error(L);
 	}
+
+        if (lua_toboolean(L, 6)) {
+            ret = dbus_connection_send(c->conn, msg, NULL);
+            dbus_message_unref(msg);
+
+            if (ret == FALSE) {
+                    lua_pushnil(L);
+                    lua_pushliteral(L, "Out of memory");
+                    return 2;
+            }
+
+            /* return true */
+            lua_pushboolean(L, 1);
+            return 1;
+        }
 
 	/* if (!lua_pushthread(L)) { / * L can be yielded */
 	if (mainThread) { /* main loop is running */
