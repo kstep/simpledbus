@@ -62,22 +62,22 @@ do
 
    function M.Bus:request_name(name, flags)
       return call_method(self, target, object, interface,
-            'RequestName', 'su', name, flags or 0)
+            'RequestName', false, 'su', name, flags or 0)
    end
 
    function M.Bus:release_name(name)
       return call_method(self, target, object, interface,
-            'ReleaseName', 's', name)
+            'ReleaseName', true, 's', name)
    end
 
    function M.Bus:add_match(rule)
       return call_method(self, target, object, interface,
-            'AddMatch', 's', rule)
+            'AddMatch', true, 's', rule)
    end
 
    function M.Bus:remove_match(rule)
       return call_method(self, target, object, interface,
-            'RemoveMatch', 's', rule)
+            'RemoveMatch', true, 's', rule)
    end
 end
 
